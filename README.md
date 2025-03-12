@@ -2,7 +2,7 @@
 
 A high-performance testing framework for state-of-the-art multimodal voice AI models based on OpenAI's Realtime API. VOX MACHINA provides a cyberpunk-inspired interface for pushing the boundaries of AI vocal capabilities and real-time interaction.
 
-<img src="banner.png" alt="VOX MACHINA Interface" width="800"/>
+<img src="banner.png" alt="VOX MACHINA Interface" width="350"/>
 
 ## Technical Overview
 
