@@ -1,0 +1,25 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="128" fill="#0A0E17"/>
+  <rect x="192" y="192" width="640" height="640" rx="64" stroke="#00AAFF" stroke-width="24"/>
+  <path d="M352 384L480 512L352 640" stroke="#00FFC8" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M512 640L672 640" stroke="#FF00AA" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="32" fill="#00FFC8"/>
+  <circle cx="352" cy="256" r="32" fill="#00AAFF"/>
+  <circle cx="448" cy="256" r="32" fill="#FF00AA"/>
+  
+  <\!-- Grid lines -->
+  <path opacity="0.2" d="M192 320H832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M192 448H832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M192 576H832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M192 704H832" stroke="#00AAFF" stroke-width="1"/>
+  
+  <path opacity="0.2" d="M320 192V832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M448 192V832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M576 192V832" stroke="#00AAFF" stroke-width="1"/>
+  <path opacity="0.2" d="M704 192V832" stroke="#00AAFF" stroke-width="1"/>
+  
+  <\!-- Glow effects -->
+  <circle cx="256" cy="256" r="40" fill="#00FFC8" opacity="0.3"/>
+  <circle cx="352" cy="256" r="40" fill="#00AAFF" opacity="0.3"/>
+  <circle cx="448" cy="256" r="40" fill="#FF00AA" opacity="0.3"/>
+</svg>
