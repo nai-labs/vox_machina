@@ -1,6 +1,6 @@
 # VOX MACHINA - Neural Voice Interface
 
-<div style="float: right; margin: 0 0 20px 20px; max-width: 40%;">
+<div style="float: center; margin: 0 0 20px 20px; max-width: 40%;">
   <img src="banner.png" alt="VOX MACHINA Interface" style="width: 50%; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);" />
 </div>
 
