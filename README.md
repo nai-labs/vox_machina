@@ -1,7 +1,7 @@
 # VOX MACHINA - Neural Voice Interface
 
-<div style="float: center; margin: 0 0 20px 20px; max-width: 40%;">
-  <img src="banner.png" alt="VOX MACHINA Interface" style="width: 50%; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);" />
+<div style="float: right; margin: 0 0 20px 20px; max-width: 40%;">
+  <img src="banner.png" alt="VOX MACHINA Interface" style="width: 100%; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);" />
 </div>
 
 A high-performance testing framework for state-of-the-art multimodal voice AI models based on OpenAI's Realtime API. VOX MACHINA provides a cyberpunk-inspired interface for pushing the boundaries of AI vocal capabilities and real-time interaction.
