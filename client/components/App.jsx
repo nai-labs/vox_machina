@@ -20,12 +20,24 @@ export default function App() {
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
+  const micTrackRef = useRef(null);
   const isAISpeakingRef = useRef(false);
   const isSessionInitializedRef = useRef(false);
   const firstExportTimeoutRef = useRef(null);
   const hasExportedRef = useRef(false);
+  
+  // Toggle microphone mute state
+  function toggleMicMute() {
+    if (micTrackRef.current) {
+      const newMuteState = !isMicMuted;
+      micTrackRef.current.enabled = !newMuteState;
+      setIsMicMuted(newMuteState);
+      console.log(`Microphone ${newMuteState ? 'muted' : 'unmuted'}`);
+    }
+  }
 
   function handleSelectCharacter(character) {
     setSelectedCharacter(character);
@@ -167,7 +179,9 @@ export default function App() {
     const ms = await navigator.mediaDevices.getUserMedia({
       audio: true,
     });
-    pc.addTrack(ms.getTracks()[0]);
+    const micTrack = ms.getTracks()[0];
+    micTrackRef.current = micTrack; // Store reference for mute control
+    pc.addTrack(micTrack);
     
     // Set up MediaRecorder for user audio
     try {
@@ -658,7 +672,9 @@ export default function App() {
                   ) : audioElement.current && audioElement.current.srcObject ? (
                     <WaveformVisualizer 
                       audioStream={audioElement.current.srcObject} 
-                      isAISpeaking={isAISpeaking} 
+                      isAISpeaking={isAISpeaking}
+                      isMicMuted={isMicMuted}
+                      toggleMicMute={toggleMicMute}
                     />
                   ) : !isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">

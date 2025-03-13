@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Mic, MicOff } from "react-feather";
 
-export default function WaveformVisualizer({ audioStream, isAISpeaking }) {
+export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMuted, toggleMicMute }) {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const analyserRef = useRef(null);
@@ -275,6 +276,25 @@ export default function WaveformVisualizer({ audioStream, isAISpeaking }) {
             <span className="text-xs mt-1">AWAITING TRANSMISSION</span>
           </div>
         </div>
+      )}
+      
+      {/* Microphone Mute Button */}
+      {toggleMicMute && (
+        <button 
+          onClick={toggleMicMute}
+          className={`absolute bottom-4 right-4 terminal-button p-2 z-30 transition-all duration-300 ${
+            isMicMuted 
+              ? "bg-cyber-dark border-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" 
+              : "bg-cyber-dark border-neon-primary shadow-neon-glow"
+          }`}
+          title={isMicMuted ? "Unmute Microphone" : "Mute Microphone"}
+        >
+          {isMicMuted ? (
+            <MicOff size={20} className="text-red-500" />
+          ) : (
+            <Mic size={20} className="text-neon-primary" />
+          )}
+        </button>
       )}
     </div>
   );
