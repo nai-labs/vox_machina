@@ -24,12 +24,21 @@ export function getCharacterPromptById(id) {
   console.log(`Looking for character with ID: "${id}"`);
   const characters = getCharacterPrompts();
   
-  const character = characters[id] || characters['lily'] || null;
-  if (character) {
-    console.log(`Found character: ${character.name}`);
-  } else {
-    console.error(`Character with ID "${id}" not found`);
+  // If the requested character exists, return it
+  if (characters[id]) {
+    console.log(`Found character: ${characters[id].name}`);
+    return characters[id];
   }
   
-  return character;
+  // If the requested character doesn't exist, find the first available character as fallback
+  const characterIds = Object.keys(characters);
+  if (characterIds.length > 0) {
+    const fallbackId = characterIds[0];
+    console.log(`Character "${id}" not found, using fallback character: ${characters[fallbackId].name}`);
+    return characters[fallbackId];
+  }
+  
+  // If no characters are available, return null
+  console.error(`No characters available in characters.json`);
+  return null;
 }

@@ -5,6 +5,7 @@
     "description": "A technical assistant with cyberpunk aesthetic",
     "voice": "alloy",
     "promptName": "Cyberpunk Technical Assistant",
+    "iconType": "terminal",
     "prompt": "your special sauce system prompt"
   },
   "second_example": {
@@ -13,6 +14,7 @@
     "description": "A creative storyteller specializing in science fiction",
     "voice": "nova",
     "promptName": "Science Fiction Narrator",
+    "iconType": "book",
     "prompt": "your special sauce system prompt"
   }
 }

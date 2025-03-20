@@ -34,7 +34,7 @@ app.use((req, res, next) => {
 app.get("/token", async (req, res) => {
   try {
     // Get the character ID and parameters from the query
-    const characterId = req.query.character || 'lily';
+    const characterId = req.query.character || 'default';
     const temperature = parseFloat(req.query.temperature) || 0.8;
     const voice = req.query.voice || null;
     

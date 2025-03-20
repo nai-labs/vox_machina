@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { getAllCharacters } from "../utils/characterData";
-import { User, Zap, Heart, MessageCircle, PhoneCall, Volume2, Thermometer } from "react-feather";
+import { User, Zap, Heart, MessageCircle, PhoneCall, Volume2, Thermometer, Mic, Book, Terminal } from "react-feather";
 
 export default function CharacterSelect({ onSelectCharacter }) {
-  const [selectedCharacterId, setSelectedCharacterId] = useState("lily");
+  const [selectedCharacterId, setSelectedCharacterId] = useState("bill");
   const [temperature, setTemperature] = useState(0.8);
   const [selectedVoice, setSelectedVoice] = useState(null);
   const characters = getAllCharacters();
@@ -32,50 +32,43 @@ export default function CharacterSelect({ onSelectCharacter }) {
     return "text-red-400";
   };
 
-  // Get character-specific icon
-  const getCharacterIcon = (id) => {
-    switch(id) {
-      case 'lily':
-        return <Heart size={16} className="text-neon-primary" />;
-      case 'nikki':
-        return <MessageCircle size={16} className="text-neon-tertiary" />;
-      case 'tina':
-        return <PhoneCall size={16} className="text-neon-secondary" />;
-      default:
-        return <User size={16} className="text-neon-secondary" />;
-    }
-  };
-
   return (
     <div className="flex flex-col items-center justify-center w-full h-full p-3">
-      <div className="terminal-header flex items-center gap-2 mb-4">
-        <Zap size={18} className="text-neon-primary" />
-        <h2 className="text-lg neon-text">SELECT VOX MACHINA PERSONA</h2>
-      </div>
-      
-      <div className="grid grid-cols-3 gap-3 mb-4 w-full max-w-3xl">
+      <div className="grid grid-cols-4 gap-2 mb-4 w-full max-w-3xl">
         {characters.map((character) => (
           <div 
             key={character.id}
-            className={`terminal-panel cursor-pointer p-2 flex flex-col transition-all duration-300 ${
+            className={`terminal-panel cursor-pointer p-1 flex flex-col transition-all duration-300 ${
               selectedCharacterId === character.id 
                 ? "border-neon-primary shadow-neon-glow" 
                 : "border-cyber-light hover:border-neon-secondary"
             }`}
             onClick={() => handleSelect(character.id)}
           >
+            {/* Avatar Image */}
+            {character.avatarPath && (
+              <div className="mb-1 relative overflow-hidden rounded-sm">
+                <div className="terminal-scan-line absolute inset-0 opacity-30"></div>
+                <img 
+                  src={character.avatarPath} 
+                  alt={`${character.name} avatar`}
+                  className={`w-full h-16 object-cover ${
+                    selectedCharacterId === character.id 
+                      ? "border border-neon-primary animate-pulse-subtle" 
+                      : "border border-cyber-light"
+                  }`}
+                />
+              </div>
+            )}
+            
             <div className="terminal-header flex items-center justify-between">
               <span className="flex items-center gap-1">
-                {getCharacterIcon(character.id)}
-                <span className={`text-sm ${selectedCharacterId === character.id ? "text-neon-primary" : ""}`}>
+                <PhoneCall size={16} className="text-neon-secondary" />
+                <span className={`text-xs ${selectedCharacterId === character.id ? "text-neon-primary" : ""}`}>
                   {character.name}
                 </span>
               </span>
               <div className={`h-1.5 w-1.5 rounded-full ${selectedCharacterId === character.id ? "bg-neon-primary animate-pulse" : "bg-cyber-light"}`}></div>
-            </div>
-            
-            <div className="flex-1">
-              <p className="text-xs opacity-80 mt-1 line-clamp-2">{character.description}</p>
             </div>
           </div>
         ))}
@@ -132,9 +125,14 @@ export default function CharacterSelect({ onSelectCharacter }) {
               className="terminal-select w-full text-sm p-1.5 bg-cyber-dark border border-neon-primary text-cyber-text"
             >
               <option value="default" className="bg-cyber-dark text-neon-secondary">Default ({characters.find(c => c.id === selectedCharacterId)?.voice || "sage"})</option>
-              <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
+              <option value="alloy" className="bg-cyber-dark text-neon-primary">Alloy</option>
+              <option value="ash" className="bg-cyber-dark text-neon-primary">Ash</option>
+              <option value="ballad" className="bg-cyber-dark text-neon-primary">Ballad</option>
               <option value="coral" className="bg-cyber-dark text-neon-tertiary">Coral</option>
+              <option value="echo" className="bg-cyber-dark text-neon-primary">Echo</option>
               <option value="sage" className="bg-cyber-dark text-neon-secondary">Sage</option>
+              <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
+              <option value="verse" className="bg-cyber-dark text-neon-primary">Verse</option>
             </select>
           </div>
         </div>

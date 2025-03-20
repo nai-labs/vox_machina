@@ -27,6 +27,10 @@ pnpm-debug.log*
 # Local character data
 characters.json
 
+# Character avatars
+/client/assets/avatars/*.png
+!client/assets/avatars/.gitkeep
+
 # Binary files and app directories
 *.app/
 *.exe
