@@ -102,10 +102,12 @@ The system will initialize on http://localhost:3000 and automatically generate a
    - The data stream panel shows the JSON events being exchanged
 
 5. **Recording and Exporting**:
-   - All sessions are automatically recorded
-   - Audio files are saved to the outputs/ directory
-   - Both AI and user audio are captured and can be combined
-   - Files are timestamped for easy reference
+   - Audio can be manually exported using the export buttons
+   - Two export options are available near the waveform visualizer:
+     - "Export Last" - Saves only the most recent AI response
+     - "Export Full" - Saves the entire conversation from the current session
+   - All exported files are saved to the outputs/ directory with timestamps
+   - Exported audio has silent gaps (>1 second) automatically removed
 
 6. **Ending a Session**:
    - Click "STOP SESSION" to terminate the connection
@@ -163,20 +165,32 @@ VOX MACHINA automatically records and processes audio sessions with a comprehens
 ### Recording Types
 
 - **WebM**: Raw audio format for highest quality preservation
-  - Filename format: `ai-audio-[timestamp].webm`
+  - Filename formats: 
+    - `last-response-[timestamp].webm` (for last response exports)
+    - `full-conversation-[timestamp].webm` (for full conversation exports)
   - Used for archival purposes and high-quality playback
   
 - **MP3**: Compressed format for easy sharing
-  - Filename format: `ai-audio-[timestamp].mp3`
+  - Filename formats:
+    - `last-response-[timestamp].mp3` (for last response exports)
+    - `full-conversation-[timestamp].mp3` (for full conversation exports)
   - Automatically converted from WebM for compatibility
+  - Includes silence removal processing for better listening experience
+
+### Audio Processing Features
+
+- **Manual Export Controls**: User-controlled export buttons for precise control
+  - Export only when you want to save the audio
+  - Choose between saving just the last response or the full conversation
   
-- **Combined Audio**: AI and user audio mixed for conversation playback
-  - Filename format: `combined-audio-[timestamp].mp3`
-  - Created when both AI and user audio are recorded in a session
+- **Silence Removal**: Automatic removal of silent gaps longer than 1 second
+  - Creates more concise audio files
+  - Preserves natural speech patterns and short pauses
+  - Applied during WebM to MP3 conversion
   
-- **Recent Message**: Just the last AI response
-  - Filename format: `recent-message-[timestamp].webm/mp3`
-  - Useful for extracting specific responses
+- **Optimized Audio Quality**: Clean, professional-sounding output
+  - High-quality MP3 encoding (128k bitrate)
+  - Removes dead air while maintaining natural speech rhythm
 
 ### Storage Structure
 
@@ -193,7 +207,7 @@ All recordings are stored in the `outputs/` directory with ISO timestamp filenam
 
 The recording system uses:
 - WebRTC MediaRecorder API for capturing audio streams
-- FFMPEG for audio format conversion and mixing
+- FFMPEG for audio format conversion and silence removal
 - Express routes for saving and processing audio data
 
 ## Development

@@ -5,7 +5,7 @@ import SessionControls from "./SessionControls";
 import WaveformVisualizer from "./WaveformVisualizer";
 import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
-import { Download, Cpu, Terminal, Zap, AlertTriangle, Activity, User } from "react-feather";
+import { Download, Cpu, Terminal, Zap, AlertTriangle, Activity, User, Save } from "react-feather";
 import { getCharacterById } from "../utils/characterData";
 
 export default function App() {
@@ -26,8 +26,9 @@ export default function App() {
   const micTrackRef = useRef(null);
   const isAISpeakingRef = useRef(false);
   const isSessionInitializedRef = useRef(false);
-  const firstExportTimeoutRef = useRef(null);
-  const hasExportedRef = useRef(false);
+  
+  // Store all AI audio responses for the session
+  const audioResponsesHistoryRef = useRef([]);
   
   // Toggle microphone mute state
   function toggleMicMute() {
@@ -84,6 +85,8 @@ export default function App() {
         mediaRecorderRef.current = mediaRecorder;
         // Initialize or clear audio chunks
         audioChunksRef.current = [];
+        // Clear audio responses history
+        audioResponsesHistoryRef.current = [];
         
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
@@ -182,30 +185,6 @@ export default function App() {
     const micTrack = ms.getTracks()[0];
     micTrackRef.current = micTrack; // Store reference for mute control
     pc.addTrack(micTrack);
-    
-    // Set up MediaRecorder for user audio
-    try {
-      const userMediaRecorder = new MediaRecorder(ms);
-      userMediaRecorderRef.current = userMediaRecorder;
-      userAudioChunksRef.current = [];
-      
-      userMediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          userAudioChunksRef.current.push(event.data);
-          console.log("User audio data received", event.data.size, "total user chunks:", userAudioChunksRef.current.length);
-        }
-      };
-      
-      userMediaRecorder.onstop = () => {
-        console.log("User media recorder stopped");
-      };
-      
-      // Start recording user audio
-      userMediaRecorder.start(5000);
-      console.log("User media recorder started");
-    } catch (err) {
-      console.error("Failed to set up user media recorder:", err);
-    }
 
     // Set up data channel for sending and receiving events
     const dc = pc.createDataChannel("oai-events");
@@ -213,13 +192,7 @@ export default function App() {
 
     // Reset session state
     isSessionInitializedRef.current = false;
-    hasExportedRef.current = false;
     
-    // Clear any existing first export timeout
-    if (firstExportTimeoutRef.current) {
-      clearTimeout(firstExportTimeoutRef.current);
-    }
-
     // Start the session using the Session Description Protocol (SDP)
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -250,10 +223,6 @@ export default function App() {
   const audioChunksRef = useRef([]);
   // Current message chunks storage
   const currentMessageChunksRef = useRef([]);
-  // User audio MediaRecorder reference
-  const userMediaRecorderRef = useRef(null);
-  // User audio chunks storage
-  const userAudioChunksRef = useRef([]);
 
   // Stop current session, clean up peer connection and data channel
   function stopSession() {
@@ -264,17 +233,6 @@ export default function App() {
     // Stop any active media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-    }
-    
-    // Stop user media recorder
-    if (userMediaRecorderRef.current && userMediaRecorderRef.current.state !== 'inactive') {
-      userMediaRecorderRef.current.stop();
-    }
-
-    // Clear any pending first export timeout
-    if (firstExportTimeoutRef.current) {
-      clearTimeout(firstExportTimeoutRef.current);
-      firstExportTimeoutRef.current = null;
     }
 
     peerConnection.current.getSenders().forEach((sender) => {
@@ -290,7 +248,9 @@ export default function App() {
     setIsSessionActive(false);
     setDataChannel(null);
     peerConnection.current = null;
-    userMediaRecorderRef.current = null;
+    
+    // Clear audio responses history when session ends
+    audioResponsesHistoryRef.current = [];
   }
 
   // Send a message to the model
@@ -327,150 +287,173 @@ export default function App() {
     sendClientEvent({ type: "response.create" });
   }
 
-  // Function to export the recorded audio
-  async function exportAudio(isFirstExport = false) {
-    console.log(`Auto-saving conversation - EXPORT TRIGGERED (${isFirstExport ? 'FIRST EXPORT' : 'REGULAR EXPORT'})`);
+  // Function to export the last AI audio response
+  async function exportLastAudio() {
+    console.log("Exporting last AI audio response");
     
-    // Mark that we've attempted an export
-    hasExportedRef.current = true;
-    
-    // For first export, we might not have lastAudioResponse yet, so create one from chunks
-    if (isFirstExport && !lastAudioResponse && audioChunksRef.current.length > 0) {
-      console.log("Creating audio response for first export from chunks");
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      setLastAudioResponse(audioBlob);
-    }
-    
-    // Check if we have audio data to export
-    if (!lastAudioResponse && audioChunksRef.current.length === 0) {
-      console.log("No audio response available to export");
+    if (!lastMessageAudio || lastMessageAudio.size === 0) {
+      console.log("No last message audio available to export");
+      setExportStatus("No audio to export");
       return;
     }
 
-    console.log("Audio data available, proceeding with export");
-    console.log("Audio chunks count:", audioChunksRef.current.length);
-    console.log("User audio chunks count:", userAudioChunksRef.current.length);
-
     try {
       setIsExporting(true);
+      setExportStatus("Exporting last response...");
 
-      // Request final chunks from both recorders
+      // Request final chunks to ensure we have the latest data
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        console.log("Requesting final AI audio data");
+        console.log("Requesting final audio data");
         mediaRecorderRef.current.requestData();
       }
-      if (userMediaRecorderRef.current && userMediaRecorderRef.current.state !== 'inactive') {
-        console.log("Requesting final user audio data");
-        userMediaRecorderRef.current.requestData();
-      }
 
-      // Short delay to ensure we have the latest data after requestData
+      // Short delay to ensure we have the latest data
       await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Convert AI audio blob to base64
-      const aiAudioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      console.log("AI audio blob size:", aiAudioBlob.size);
       
-      if (aiAudioBlob.size === 0) {
-        console.log("AI audio blob is empty, aborting export");
-        setIsExporting(false);
-        return;
-      }
+      // Convert audio blob to base64
+      const reader = new FileReader();
+      reader.readAsDataURL(lastMessageAudio);
       
-      const aiReader = new FileReader();
-      aiReader.readAsDataURL(aiAudioBlob);
-      
-      aiReader.onloadend = async () => {
+      reader.onloadend = async () => {
         try {
-          let aiBase64data = aiReader.result;
+          let base64data = reader.result;
           
-          // Check if the AI data is too large
-          if (aiBase64data.length > 10000000) { // ~10MB limit
-            console.log("AI audio data is too large, trimming to last 10MB");
-            aiBase64data = aiBase64data.substring(aiBase64data.length - 10000000);
+          console.log("Sending last message audio data, length:", base64data.length);
+          
+          // Send audio to server
+          const response = await fetch('/save-audio', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              audioData: base64data,
+              isRecentMessage: true,
+              exportType: 'last'
+            }),
+          });
+          
+          console.log("Server response status:", response.status);
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            console.log(`Last audio response saved as ${result.mp3.filename}`);
+            setExportStatus(`Saved as ${result.mp3.filename}`);
+            setTimeout(() => setExportStatus(null), 3000);
+          } else {
+            console.error("Server returned error:", result.error);
+            setExportStatus("Export failed");
+            setTimeout(() => setExportStatus(null), 3000);
           }
-          
-          // Convert user audio blob to base64
-          const userAudioBlob = new Blob(userAudioChunksRef.current, { type: 'audio/webm' });
-          const userReader = new FileReader();
-          userReader.readAsDataURL(userAudioBlob);
-          
-          userReader.onloadend = async () => {
-            try {
-              let userBase64data = userReader.result;
-              
-              // Check if the user data is too large
-              if (userBase64data.length > 10000000) { // ~10MB limit
-                console.log("User audio data is too large, trimming to last 10MB");
-                userBase64data = userBase64data.substring(userBase64data.length - 10000000);
-              }
-              
-              console.log("Sending AI audio data, length:", aiBase64data.length);
-              console.log("Sending user audio data, length:", userBase64data.length);
-              
-              // Send both audio streams to server
-              const response = await fetch('/save-audio', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                  aiAudioData: aiBase64data,
-                  userAudioData: userBase64data,
-                  isRecentMessage: false,
-                  includeUserAudio: true
-                }),
-              });
-              
-              console.log("Server response status:", response.status);
-              
-              let result;
-              try {
-                const responseText = await response.text();
-                console.log("Response text preview:", responseText.substring(0, 100));
-                
-                try {
-                  result = JSON.parse(responseText);
-                } catch (e) {
-                  console.error("Failed to parse response as JSON:", e);
-                  throw new Error(`Server returned invalid JSON: ${responseText.substring(0, 200)}`);
-                }
-              } catch (e) {
-                console.error("Error reading response:", e);
-                throw e;
-              }
-              
-              if (result.success) {
-                console.log(`Audio auto-saved as ${result.combined ? result.combined.filename : result.webm.filename}`);
-              } else {
-                console.error("Server returned error:", result.error);
-                throw new Error(result.error || "Failed to save audio");
-              }
-            } catch (error) {
-              console.error("Error processing user audio:", error);
-            } finally {
-              setIsExporting(false);
-            }
-          };
-          
-          userReader.onerror = () => {
-            console.error("Error reading user audio data");
-            setIsExporting(false);
-          };
-          
         } catch (error) {
-          console.error("Error processing AI audio:", error);
+          console.error("Error processing audio:", error);
+          setExportStatus("Export failed");
+          setTimeout(() => setExportStatus(null), 3000);
+        } finally {
           setIsExporting(false);
         }
       };
       
-      aiReader.onerror = () => {
-        console.error("Error reading AI audio data");
+      reader.onerror = () => {
+        console.error("Error reading audio data");
         setIsExporting(false);
+        setExportStatus("Export failed");
+        setTimeout(() => setExportStatus(null), 3000);
       };
     } catch (error) {
       console.error("Error exporting audio:", error);
       setIsExporting(false);
+      setExportStatus("Export failed");
+      setTimeout(() => setExportStatus(null), 3000);
+    }
+  }
+
+  // Function to export all AI audio responses
+  async function exportFullAudio() {
+    console.log("Exporting full AI audio conversation");
+    
+    if (!lastAudioResponse || lastAudioResponse.size === 0) {
+      console.log("No audio available to export");
+      setExportStatus("No audio to export");
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      setExportStatus("Exporting full conversation...");
+
+      // Request final chunks to ensure we have the latest data
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        console.log("Requesting final audio data");
+        mediaRecorderRef.current.requestData();
+      }
+
+      // Short delay to ensure we have the latest data
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Convert audio blob to base64
+      const reader = new FileReader();
+      reader.readAsDataURL(lastAudioResponse);
+      
+      reader.onloadend = async () => {
+        try {
+          let base64data = reader.result;
+          
+          // Check if the data is too large
+          if (base64data.length > 10000000) { // ~10MB limit
+            console.log("Audio data is too large, trimming to last 10MB");
+            base64data = base64data.substring(base64data.length - 10000000);
+          }
+          
+          console.log("Sending full audio data, length:", base64data.length);
+          
+          // Send audio to server
+          const response = await fetch('/save-audio', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              audioData: base64data,
+              isRecentMessage: false,
+              exportType: 'full'
+            }),
+          });
+          
+          console.log("Server response status:", response.status);
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            console.log(`Full audio conversation saved as ${result.mp3.filename}`);
+            setExportStatus(`Saved as ${result.mp3.filename}`);
+            setTimeout(() => setExportStatus(null), 3000);
+          } else {
+            console.error("Server returned error:", result.error);
+            setExportStatus("Export failed");
+            setTimeout(() => setExportStatus(null), 3000);
+          }
+        } catch (error) {
+          console.error("Error processing audio:", error);
+          setExportStatus("Export failed");
+          setTimeout(() => setExportStatus(null), 3000);
+        } finally {
+          setIsExporting(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        console.error("Error reading audio data");
+        setIsExporting(false);
+        setExportStatus("Export failed");
+        setTimeout(() => setExportStatus(null), 3000);
+      };
+    } catch (error) {
+      console.error("Error exporting audio:", error);
+      setIsExporting(false);
+      setExportStatus("Export failed");
+      setTimeout(() => setExportStatus(null), 3000);
     }
   }
 
@@ -490,14 +473,13 @@ export default function App() {
         }
         
         // When the model stops speaking (response is done), finalize the current message audio
-        // and trigger auto-export
         if (eventData.type === "response.done") {
           console.log("Response completed, finalizing current message audio");
           console.log("Current message chunks length:", currentMessageChunksRef.current.length);
           
           // Always request the latest audio data
           if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            console.log("Requesting final audio data before export");
+            console.log("Requesting final audio data");
             mediaRecorderRef.current.requestData();
           }
           
@@ -506,20 +488,12 @@ export default function App() {
             const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
             setLastMessageAudio(messageBlob);
             console.log("Finalized lastMessageAudio", messageBlob.size);
+            
+            // Add to audio responses history
+            audioResponsesHistoryRef.current.push(messageBlob);
+            console.log("Added response to history, total responses:", audioResponsesHistoryRef.current.length);
           } else {
             console.log("No chunks to finalize for lastMessageAudio");
-          }
-          
-          // Only auto-export if the session is fully initialized
-          if (isSessionInitializedRef.current) {
-            // Auto-export the conversation after each turn with a longer delay
-            console.log("Scheduling auto-export in 3 seconds");
-            setTimeout(() => {
-              console.log("Auto-export timer triggered");
-              exportAudio();
-            }, 3000); // Longer delay to ensure all audio is processed
-          } else {
-            console.log("Skipping auto-export - session not fully initialized yet");
           }
         }
         
@@ -542,14 +516,6 @@ export default function App() {
         setTimeout(() => {
           console.log("Session fully initialized");
           isSessionInitializedRef.current = true;
-          
-          // Schedule first export after 10 seconds to ensure we have at least one export
-          firstExportTimeoutRef.current = setTimeout(() => {
-            console.log("Triggering first automatic export");
-            if (!hasExportedRef.current) {
-              exportAudio(true); // Pass true to indicate this is the first export
-            }
-          }, 10000);
         }, 2000);
       });
     }
@@ -656,26 +622,62 @@ export default function App() {
                     </>
                   ) : (
                     <>
-                    <span className="flex items-center gap-2">
-                      <Activity size={16} className="text-neon-primary" />
-                      VOX MACHINA AUDIO VISUALIZATION
-                    </span>
+                      <span className="flex items-center gap-2">
+                        <Activity size={16} className="text-neon-primary" />
+                        VOX MACHINA AUDIO VISUALIZATION
+                      </span>
                       <div className={`text-xs ${isAISpeaking ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
                         {isAISpeaking ? "TRANSMITTING" : "IDLE"}
                       </div>
                     </>
                   )}
                 </div>
-                <div className="terminal-content h-full">
+                <div className="terminal-content h-full relative">
                   {!isSessionActive && isCharacterSelectionMode ? (
                     <CharacterSelect onSelectCharacter={handleSelectCharacter} />
                   ) : audioElement.current && audioElement.current.srcObject ? (
-                    <WaveformVisualizer 
-                      audioStream={audioElement.current.srcObject} 
-                      isAISpeaking={isAISpeaking}
-                      isMicMuted={isMicMuted}
-                      toggleMicMute={toggleMicMute}
-                    />
+                    <>
+                      <WaveformVisualizer 
+                        audioStream={audioElement.current.srcObject} 
+                        isAISpeaking={isAISpeaking}
+                        isMicMuted={isMicMuted}
+                        toggleMicMute={toggleMicMute}
+                      />
+                      
+                      {/* Export buttons */}
+                      <div className="absolute top-4 right-4 flex gap-2">
+                        <button
+                          onClick={exportLastAudio}
+                          disabled={isExporting || !lastMessageAudio}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
+                            isExporting ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          title="Export last AI response"
+                        >
+                          <Save size={16} className="text-neon-secondary" />
+                          <span className="text-neon-secondary">EXPORT LAST</span>
+                        </button>
+                        
+                        <button
+                          onClick={exportFullAudio}
+                          disabled={isExporting || !lastAudioResponse}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
+                            isExporting ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          title="Export full conversation"
+                        >
+                          <Download size={16} className="text-neon-primary" />
+                          <span className="text-neon-primary">EXPORT FULL</span>
+                        </button>
+                      </div>
+                      
+                      {/* Export status message */}
+                      {exportStatus && (
+                        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-cyber-dark border border-neon-primary px-4 py-2 rounded-sm text-neon-primary text-sm">
+                          {exportStatus}
+                        </div>
+                      )}
+                    </>
                   ) : !isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">
                       <div className="terminal-panel p-6 border-neon-primary max-w-md">

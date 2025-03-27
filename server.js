@@ -83,7 +83,7 @@ app.get("/token", async (req, res) => {
 app.post("/save-audio", async (req, res) => {
   try {
     console.log("Received save-audio request");
-    const { audioData, aiAudioData, userAudioData, isRecentMessage, includeUserAudio } = req.body;
+    const { audioData, isRecentMessage, exportType } = req.body;
     
     // Create outputs directory if it doesn't exist
     const outputsDir = path.join(process.cwd(), 'outputs');
@@ -95,81 +95,14 @@ app.post("/save-audio", async (req, res) => {
     // Create timestamp for filenames
     const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
     
-    // Handle the case where we're including user audio (combined export)
-    if (includeUserAudio && aiAudioData && userAudioData) {
-      console.log("Processing combined AI and user audio");
-      
-      // Ensure the data is properly formatted
-      let aiBase64Data = aiAudioData;
-      if (aiBase64Data.indexOf('base64,') > -1) {
-        aiBase64Data = aiBase64Data.split('base64,')[1];
-      }
-      
-      let userBase64Data = userAudioData;
-      if (userBase64Data.indexOf('base64,') > -1) {
-        userBase64Data = userBase64Data.split('base64,')[1];
-      }
-      
-      // Convert base64 data to buffers
-      const aiBuffer = Buffer.from(aiBase64Data, 'base64');
-      const userBuffer = Buffer.from(userBase64Data, 'base64');
-      
-      // Save AI audio
-      const aiFilename = `ai-audio-${timestamp}.webm`;
-      const aiFilePath = path.join(outputsDir, aiFilename);
-      fs.writeFileSync(aiFilePath, aiBuffer);
-      console.log("AI audio saved to:", aiFilePath);
-      
-      // Save user audio
-      const userFilename = `user-audio-${timestamp}.webm`;
-      const userFilePath = path.join(outputsDir, userFilename);
-      fs.writeFileSync(userFilePath, userBuffer);
-      console.log("User audio saved to:", userFilePath);
-      
-      // Create combined audio file using ffmpeg
-      const combinedFilename = `combined-audio-${timestamp}.mp3`;
-      const combinedFilePath = path.join(outputsDir, combinedFilename);
-      
-      // Use ffmpeg to mix the two audio files
-      await new Promise((resolve, reject) => {
-        ffmpeg()
-          .input(aiFilePath)
-          .input(userFilePath)
-          .complexFilter([
-            '[0:a][1:a]amix=inputs=2:duration=longest[aout]'
-          ])
-          .map('[aout]')
-          .output(combinedFilePath)
-          .audioCodec('libmp3lame')
-          .audioBitrate('128k')
-          .on('end', () => {
-            console.log('Combined audio created:', combinedFilePath);
-            resolve();
-          })
-          .on('error', (err) => {
-            console.error('Error creating combined audio:', err);
-            reject(err);
-          })
-          .run();
-      });
-      
-      res.json({
-        success: true,
-        message: "Combined audio saved successfully",
-        ai: { filename: aiFilename, path: aiFilePath },
-        user: { filename: userFilename, path: userFilePath },
-        combined: { filename: combinedFilename, path: combinedFilePath }
-      });
-      return;
-    }
-    
-    // Handle the original case (just AI audio)
+    // Handle the audio export
     if (!audioData) {
       console.log("No audio data provided in request");
       return res.status(400).json({ error: "No audio data provided" });
     }
     
     console.log("Audio data received, size:", audioData.length);
+    console.log("Export type:", exportType || "standard");
     console.log("Is recent message only:", isRecentMessage ? "yes" : "no");
     
     // Ensure the data is properly formatted
@@ -183,7 +116,15 @@ app.post("/save-audio", async (req, res) => {
     console.log("Buffer created, size:", buffer.length);
     
     // Create filename with timestamp and type indicator
-    const filePrefix = isRecentMessage ? 'recent-message-' : 'ai-audio-';
+    let filePrefix;
+    if (exportType === 'last') {
+      filePrefix = 'last-response-';
+    } else if (exportType === 'full') {
+      filePrefix = 'full-conversation-';
+    } else {
+      filePrefix = isRecentMessage ? 'recent-message-' : 'ai-audio-';
+    }
+    
     const filename = `${filePrefix}${timestamp}.webm`;
     const filePath = path.join(outputsDir, filename);
     
@@ -195,14 +136,15 @@ app.post("/save-audio", async (req, res) => {
     const mp3Filename = `${filePrefix}${timestamp}.mp3`;
     const mp3FilePath = path.join(outputsDir, mp3Filename);
     
-    // Convert webm to mp3 using ffmpeg
+    // Convert webm to mp3 using ffmpeg with silence removal
     await new Promise((resolve, reject) => {
       ffmpeg(filePath)
         .output(mp3FilePath)
+        .audioFilters('silenceremove=stop_periods=-1:stop_threshold=-50dB:stop_duration=1:start_threshold=-50dB:start_duration=0.1')
         .audioCodec('libmp3lame')
         .audioBitrate('128k')
         .on('end', () => {
-          console.log('MP3 conversion finished:', mp3FilePath);
+          console.log('MP3 conversion finished with silence removal:', mp3FilePath);
           resolve();
         })
         .on('error', (err) => {
