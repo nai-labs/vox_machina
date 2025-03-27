@@ -209,20 +209,6 @@ The recording system uses:
 - WebRTC MediaRecorder API for capturing audio streams
 - FFMPEG for audio format conversion and silence removal
 - Express routes for saving and processing audio data
-
-## Development
-
-- **Build for production**: `npm run build`
-- **Lint code**: `npm run lint`
-- **Configure visuals**: Edit `client/base.css` for UI styling
-
-## System Requirements
-
-- Node.js 18.x or higher
-- Modern browser with WebRTC support
-- Microphone access
-- Internet connection with at least 2 Mbps upload/download
-
 ## License
 
 MIT
