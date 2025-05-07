@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "react-feather";
 
-export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMuted, toggleMicMute }) {
+// Removed isAISpeaking prop
+export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicMute }) {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const analyserRef = useRef(null);
@@ -87,11 +88,13 @@ export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMut
       // Get the frequency data
       analyserRef.current.getByteFrequencyData(dataArray);
       
-      // Slowly rotate the visualization
-      rotationRef.current += isAISpeaking ? 0.005 : 0.001;
+      // Slowly rotate the visualization (Removed isAISpeaking dependency, using a constant rotation for now)
+      rotationRef.current += 0.002; // Constant rotation speed
       
-      // Draw the circular visualization
-      drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius, isAISpeaking);
+      // Draw the circular visualization (Removed isAISpeaking prop)
+      // Pass a constant 'true' or 'false' or derive activity from audio data if needed
+      // For now, let's assume it's always visually 'active' when the component is rendered with a stream
+      drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius, true); 
       
       // Add scan line effect
       drawScanLines(ctx, canvas.width, canvas.height);
@@ -155,11 +158,11 @@ export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMut
       ctx.restore();
     }
     
-    // Function to draw the radial visualization
-    function drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius, isActive) {
+    // Function to draw the radial visualization (Removed isActive parameter)
+    function drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius) {
       const numBars = dataArray.length / 2; // Use half the data for a cleaner visualization
       const angleStep = (Math.PI * 2) / numBars;
-      
+      const isActive = true; // Assuming always active for visual effect when stream present
       // Base radius when not speaking
       const baseRadius = maxRadius * 0.3;
       
@@ -261,7 +264,7 @@ export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMut
     return () => {
       cancelAnimationFrame(animationRef.current);
     };
-  }, [isAISpeaking, canvasSize]);
+  }, [canvasSize]); // Removed isAISpeaking from dependency array
 
   return (
     <div className="waveform-container w-full h-full relative">
@@ -269,7 +272,9 @@ export default function WaveformVisualizer({ audioStream, isAISpeaking, isMicMut
         ref={canvasRef} 
         className="w-full h-full rounded"
       />
-      {!isAISpeaking && (
+      {/* Removed conditional text based on isAISpeaking */}
+      {/* Optionally add a default state message if needed */}
+      {/* 
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-neon-primary text-sm opacity-50 flex flex-col items-center">
             <span>VOX MACHINA ACTIVE</span>

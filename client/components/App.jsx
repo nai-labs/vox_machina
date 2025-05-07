@@ -16,15 +16,16 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState(null);
   const [lastAudioResponse, setLastAudioResponse] = useState(null);
   const [lastMessageAudio, setLastMessageAudio] = useState(null);
-  const [isAISpeaking, setIsAISpeaking] = useState(false);
+  // Removed isAISpeaking state
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
+  const [isRecordingCurrentResponse, setIsRecordingCurrentResponse] = useState(false); // Added state
   const [isMicMuted, setIsMicMuted] = useState(false);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
   const micTrackRef = useRef(null);
-  const isAISpeakingRef = useRef(false);
+  // Removed isAISpeakingRef
   const isSessionInitializedRef = useRef(false);
   
   // Store all AI audio responses for the session
@@ -93,27 +94,28 @@ export default function App() {
             // Always add to full conversation audio
             audioChunksRef.current.push(event.data);
             
-            // Only add to current message audio if AI is speaking
-            if (isAISpeakingRef.current) {
+            // Only add to current message audio if recording the current response
+            if (isRecordingCurrentResponse) { // Changed condition
               currentMessageChunksRef.current.push(event.data);
-              console.log("Added chunk to current message audio (AI speaking)");
+              console.log(`[DEBUG] Added chunk (${event.data.size} bytes) to currentMessageChunksRef. Total chunks: ${currentMessageChunksRef.current.length}`); // DEBUG
             } else {
-              console.log("Skipped adding chunk to current message audio (AI not speaking)");
+              // console.log("Skipped adding chunk to current message audio (not recording response)"); // Reduced logging noise
             }
             
-            console.log("Audio data received", event.data.size, "total chunks:", audioChunksRef.current.length);
+            // console.log("Audio data received", event.data.size, "total chunks:", audioChunksRef.current.length); // Reduced logging noise
             
             // Create and update the full audio response
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             setLastAudioResponse(audioBlob);
-            console.log("Updated lastAudioResponse with new data", audioBlob.size);
+            // console.log("Updated lastAudioResponse with new data", audioBlob.size); // Reduced logging noise
             
             // Only update the current message audio if we have chunks and AI is speaking
-            if (currentMessageChunksRef.current.length > 0) {
-              const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
-              setLastMessageAudio(messageBlob);
-              console.log("Updated lastMessageAudio with new data", messageBlob.size);
-            }
+            // This check seems redundant now as setLastMessageAudio is handled on response.done
+            // if (currentMessageChunksRef.current.length > 0) {
+            //   const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
+            //   setLastMessageAudio(messageBlob);
+            //   console.log("Updated lastMessageAudio with new data", messageBlob.size);
+            // }
           }
         };
         
@@ -129,50 +131,8 @@ export default function App() {
         mediaRecorder.start(5000);
         console.log("Media recorder started");
         
-        // Create listeners for speech activity
-        audioElement.current.onplay = () => {
-          console.log("AI started speaking");
-          isAISpeakingRef.current = true; // Update ref immediately (synchronous)
-          setIsAISpeaking(true); // Update state for UI (asynchronous)
-          // When AI starts speaking for a new response, we should already have
-          // cleared the current message chunks when response.create was received
-          console.log("Current message chunks length at start of speech:", currentMessageChunksRef.current.length);
-        };
+        // Removed onplay/onpause listeners for speech activity
         
-        audioElement.current.onpause = () => {
-          console.log("AI stopped speaking");
-          isAISpeakingRef.current = false; // Update ref immediately (synchronous)
-          setIsAISpeaking(false); // Update state for UI (asynchronous)
-          // When AI stops speaking, finalize the current message audio
-          console.log("Current message chunks length at end of speech:", currentMessageChunksRef.current.length);
-          if (currentMessageChunksRef.current.length > 0) {
-            const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
-            setLastMessageAudio(messageBlob);
-            console.log("Finalized message audio on pause", messageBlob.size);
-          } else {
-            console.log("No chunks to finalize for lastMessageAudio on pause");
-          }
-          // Request data to ensure we have the latest audio
-          mediaRecorder.requestData();
-        };
-        
-        // Listen for new audio responses via data channel to know when to save audio
-        if (dataChannel) {
-          const originalOnOpen = dataChannel.onopen;
-          dataChannel.onopen = (e) => {
-            if (originalOnOpen) originalOnOpen(e);
-            
-            dataChannel.addEventListener("message", (event) => {
-              const data = JSON.parse(event.data);
-              
-              // Detect when the model stops speaking (response is done)
-              if (data.type === "response.done") {
-                console.log("Response completed, requesting audio data");
-                mediaRecorder.requestData();
-              }
-            });
-          };
-        }
       } catch (err) {
         console.error("Failed to set up media recorder:", err);
       }
@@ -289,11 +249,13 @@ export default function App() {
 
   // Function to export the last AI audio response
   async function exportLastAudio() {
-    console.log("Exporting last AI audio response");
+    console.log("[DEBUG] exportLastAudio called"); // DEBUG
+    console.log("[DEBUG] Current lastMessageAudio state:", lastMessageAudio); // DEBUG
     
     if (!lastMessageAudio || lastMessageAudio.size === 0) {
-      console.log("No last message audio available to export");
+      console.log("[DEBUG] No last message audio available or size is 0"); // DEBUG
       setExportStatus("No audio to export");
+      setTimeout(() => setExportStatus(null), 3000); // Clear status after timeout
       return;
     }
 
@@ -301,24 +263,29 @@ export default function App() {
       setIsExporting(true);
       setExportStatus("Exporting last response...");
 
-      // Request final chunks to ensure we have the latest data
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        console.log("Requesting final audio data");
-        mediaRecorderRef.current.requestData();
-      }
+      // Request final chunks to ensure we have the latest data - This might be redundant if response.done already did it.
+      // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      //   console.log("Requesting final audio data in exportLastAudio");
+      //   mediaRecorderRef.current.requestData();
+      // }
 
-      // Short delay to ensure we have the latest data
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Short delay to ensure we have the latest data - May not be needed if blob is already finalized
+      // await new Promise(resolve => setTimeout(resolve, 500));
       
       // Convert audio blob to base64
       const reader = new FileReader();
-      reader.readAsDataURL(lastMessageAudio);
+      reader.readAsDataURL(lastMessageAudio); // Use the state variable directly
       
       reader.onloadend = async () => {
         try {
           let base64data = reader.result;
+          console.log("[DEBUG] FileReader success. Base64 data length:", base64data?.length); // DEBUG
           
-          console.log("Sending last message audio data, length:", base64data.length);
+          if (!base64data) {
+            throw new Error("FileReader resulted in null or undefined data.");
+          }
+
+          console.log("[DEBUG] Sending last message audio data to /save-audio"); // DEBUG
           
           // Send audio to server
           const response = await fetch('/save-audio', {
@@ -328,14 +295,15 @@ export default function App() {
             },
             body: JSON.stringify({ 
               audioData: base64data,
-              isRecentMessage: true,
+              isRecentMessage: true, // Keep this flag? Server might not use it.
               exportType: 'last'
             }),
           });
           
-          console.log("Server response status:", response.status);
+          console.log("[DEBUG] Server response status:", response.status); // DEBUG
           
           const result = await response.json();
+          console.log("[DEBUG] Server response body:", result); // DEBUG
           
           if (result.success) {
             console.log(`Last audio response saved as ${result.mp3.filename}`);
@@ -343,29 +311,29 @@ export default function App() {
             setTimeout(() => setExportStatus(null), 3000);
           } else {
             console.error("Server returned error:", result.error);
-            setExportStatus("Export failed");
-            setTimeout(() => setExportStatus(null), 3000);
+            setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`); // Show error
+            setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
           }
         } catch (error) {
-          console.error("Error processing audio:", error);
-          setExportStatus("Export failed");
-          setTimeout(() => setExportStatus(null), 3000);
+          console.error("[DEBUG] Error processing audio or fetch:", error); // DEBUG
+          setExportStatus(`Export failed: ${error.message}`);
+          setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
         } finally {
           setIsExporting(false);
         }
       };
       
-      reader.onerror = () => {
-        console.error("Error reading audio data");
+      reader.onerror = (error) => {
+        console.error("[DEBUG] Error reading audio data with FileReader:", error); // DEBUG
         setIsExporting(false);
-        setExportStatus("Export failed");
-        setTimeout(() => setExportStatus(null), 3000);
+        setExportStatus("Export failed: FileReader error");
+        setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
       };
     } catch (error) {
-      console.error("Error exporting audio:", error);
+      console.error("[DEBUG] Error in exportLastAudio try block:", error); // DEBUG
       setIsExporting(false);
-      setExportStatus("Export failed");
-      setTimeout(() => setExportStatus(null), 3000);
+      setExportStatus(`Export failed: ${error.message}`);
+      setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
     }
   }
 
@@ -465,41 +433,47 @@ export default function App() {
         const eventData = JSON.parse(e.data);
         setEvents((prev) => [eventData, ...prev]);
         
-        // When a new response starts, reset the current message audio collection
+        // When a new response starts, reset the current message audio collection and start recording it
         if (eventData.type === "response.create") {
-          console.log("New response started, resetting current message audio");
+          console.log("New response started (response.create), resetting current message audio and starting recording");
           currentMessageChunksRef.current = [];
+          setIsRecordingCurrentResponse(true); // Start recording current response
           console.log("Current message chunks length after reset:", currentMessageChunksRef.current.length);
         }
         
         // When the model stops speaking (response is done), finalize the current message audio
         if (eventData.type === "response.done") {
-          console.log("Response completed, finalizing current message audio");
-          console.log("Current message chunks length:", currentMessageChunksRef.current.length);
+          console.log("Response completed (response.done), finalizing current message audio");
+          setIsRecordingCurrentResponse(false); // Stop recording current response
           
-          // Always request the latest audio data
-          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            console.log("Requesting final audio data");
-            mediaRecorderRef.current.requestData();
-          }
+          // Always request the latest audio data - REMOVED this line as per plan
+          // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          //   console.log("Requesting final audio data before finalizing blob");
+          //   mediaRecorderRef.current.requestData();
+          // }
           
-          // Create a blob from current message chunks if available
-          if (currentMessageChunksRef.current.length > 0) {
-            const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
-            setLastMessageAudio(messageBlob);
-            console.log("Finalized lastMessageAudio", messageBlob.size);
-            
-            // Add to audio responses history
-            audioResponsesHistoryRef.current.push(messageBlob);
-            console.log("Added response to history, total responses:", audioResponsesHistoryRef.current.length);
-          } else {
-            console.log("No chunks to finalize for lastMessageAudio");
-          }
+          // Add a short delay to allow final data chunk to arrive (if any are pending from natural recorder interval)
+          setTimeout(() => {
+            console.log("[DEBUG] Finalizing blob after delay. Current message chunks length:", currentMessageChunksRef.current.length); // DEBUG
+            // Create a blob from current message chunks if available
+            if (currentMessageChunksRef.current.length > 0) {
+              const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
+              console.log("[DEBUG] Created messageBlob, size:", messageBlob.size); // DEBUG
+              setLastMessageAudio(messageBlob);
+              console.log("[DEBUG] Called setLastMessageAudio with blob:", messageBlob); // DEBUG
+              
+              // Add to audio responses history
+              audioResponsesHistoryRef.current.push(messageBlob);
+              console.log("Added response to history, total responses:", audioResponsesHistoryRef.current.length);
+            } else {
+              console.log("[DEBUG] No chunks to finalize for lastMessageAudio"); // DEBUG
+            }
+          }, 100); // 100ms delay
         }
         
-        // Look for audio output events to save audio
+        // Look for audio output events (optional logging)
         if (eventData.type === "audio_output.delta" || eventData.type === "audio_output") {
-          console.log("Audio event received:", eventData.type);
+          // console.log("Audio event received:", eventData.type); // Reduced logging noise
         }
       });
 
@@ -626,8 +600,9 @@ export default function App() {
                         <Activity size={16} className="text-neon-primary" />
                         VOX MACHINA AUDIO VISUALIZATION
                       </span>
-                      <div className={`text-xs ${isAISpeaking ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
-                        {isAISpeaking ? "TRANSMITTING" : "IDLE"}
+                      {/* Changed condition to use isRecordingCurrentResponse */}
+                      <div className={`text-xs ${isRecordingCurrentResponse ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
+                        {isRecordingCurrentResponse ? "TRANSMITTING" : "IDLE"}
                       </div>
                     </>
                   )}
@@ -639,7 +614,7 @@ export default function App() {
                     <>
                       <WaveformVisualizer 
                         audioStream={audioElement.current.srcObject} 
-                        isAISpeaking={isAISpeaking}
+                        // Removed isAISpeaking prop
                         isMicMuted={isMicMuted}
                         toggleMicMute={toggleMicMute}
                       />
@@ -650,7 +625,7 @@ export default function App() {
                           onClick={exportLastAudio}
                           disabled={isExporting || !lastMessageAudio}
                           className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            isExporting ? 'opacity-50 cursor-not-allowed' : ''
+                            isExporting || !lastMessageAudio ? 'opacity-50 cursor-not-allowed' : '' // Ensure disabled state reflects !lastMessageAudio
                           }`}
                           title="Export last AI response"
                         >
