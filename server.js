@@ -277,10 +277,10 @@ const server = app.listen(port, () => {
 // and conditionally start the server
 let serverInstance = null;
 if (process.env.NODE_ENV !== 'test') {
-  serverInstance = app.listen(port, () => {
-    console.log(`Express server running on *:${port} (non-test mode)`);
+  serverInstance = app.listen(port, '0.0.0.0', () => { 
+    console.log(`Express server running on http://localhost:${port} (IPv4 forced, localtunnel disabled for test)`);
     
-    // Create a tunnel to make the server publicly accessible
+    /*
     (async () => {
       try {
         const subdomain = `app-${Date.now().toString().slice(-6)}`;
@@ -325,6 +325,7 @@ if (process.env.NODE_ENV !== 'test') {
         }
       }
     })();
+    */
   });
 } else {
   // If in test mode, Vite might need to be closed explicitly if it was initialized
