@@ -15,6 +15,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const apiKey = process.env.OPENAI_API_KEY;
 
+const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview-2024-12-17";
+
 // Configure Vite middleware for React client
 const vite = await createViteServer({
   server: { middlewareMode: true },
@@ -53,6 +55,14 @@ app.get("/token", async (req, res) => {
     console.log(`Using character: ${character.title}`);
     console.log(`Character prompt length: ${character.prompt.length} characters`);
     
+    let apiModel = process.env.OPENAI_API_MODEL;
+    if (!apiModel) {
+      apiModel = DEFAULT_OPENAI_MODEL;
+      console.warn(`OPENAI_API_MODEL environment variable not set. Using default model: ${DEFAULT_OPENAI_MODEL}`);
+    } else {
+      console.log(`Using OpenAI model from environment variable: ${apiModel}`);
+    }
+    
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
       {
@@ -62,7 +72,7 @@ app.get("/token", async (req, res) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-realtime-preview-2024-12-17",
+          model: apiModel,
           voice: voice || character.voice || "sage",
           temperature: temperature,
           max_response_output_tokens: 4096,
@@ -72,7 +82,8 @@ app.get("/token", async (req, res) => {
     );
 
     const data = await response.json();
-    res.json(data);
+    // Include the apiModel in the response
+    res.json({ ...data, apiModel });
   } catch (error) {
     console.error("Token generation error:", error);
     res.status(500).json({ error: "Failed to generate token" });
@@ -219,29 +230,44 @@ const server = app.listen(port, () => {
         console.log('Tunnel closed');
       });
       
-      // Handle errors
-      tunnel.on('error', (err) => {
-        console.error('Tunnel error:', err);
-      });
-    } catch (error) {
-      console.error('Failed to create tunnel:', error);
-      console.error('Error details:', error.message);
+      console.log(`🌐 Public URL: ${tunnel.url}`);
+      console.log(`Subdomain: ${subdomain}`);
+      console.log(`Share this URL with others to access your application`);
       
-      // If the first attempt fails, try again without custom options
+      tunnel.on('close', () => {
+        console.log('Tunnel closed');
+      });
+      
+      // Handle errors after tunnel is established
+      tunnel.on('error', (err) => {
+        console.error('Tunnel error (after connection):', err);
+      });
+
+    } catch (error) {
+      console.error(`Failed to create tunnel with subdomain: ${error.message}`);
+      // console.error('Error details (initial attempt):', error); // Optional: for more detailed debugging
+      
+      console.log('Trying alternative tunnel configuration (without custom subdomain)...');
       try {
-        console.log('Trying alternative tunnel configuration...');
-        const tunnel = await localtunnel({ port });
-        console.log(`🌐 Alternative Public URL: ${tunnel.url}`);
+        const fallbackTunnel = await localtunnel({ port });
+        console.log(`🌐 Alternative Public URL: ${fallbackTunnel.url}`);
+        console.log(`Share this URL with others to access your application`);
         
-        tunnel.on('close', () => {
-          console.log('Tunnel closed');
+        fallbackTunnel.on('close', () => {
+          console.log('Fallback tunnel closed');
         });
         
-        tunnel.on('error', (err) => {
-          console.error('Tunnel error:', err);
+        // Handle errors after fallback tunnel is established
+        fallbackTunnel.on('error', (err) => {
+          console.error('Fallback tunnel error (after connection):', err);
         });
       } catch (fallbackError) {
-        console.error('Failed to create alternative tunnel:', fallbackError.message);
+        console.error(`Failed to create alternative tunnel: ${fallbackError.message}`);
+        // console.error('Error details (fallback attempt):', fallbackError); // Optional: for more detailed debugging
+        console.log("\n===========================================================================");
+        console.log("🔴 Failed to create a public URL using localtunnel.");
+        console.log(`🟢 Application is running locally. Access it at http://localhost:${port}`);
+        console.log("===========================================================================\n");
       }
     }
   })();

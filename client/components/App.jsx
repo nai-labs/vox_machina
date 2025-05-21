@@ -22,6 +22,7 @@ export default function App() {
   const [showSplashScreen, setShowSplashScreen] = useState(true);
   const [isRecordingCurrentResponse, setIsRecordingCurrentResponse] = useState(false); // Added state
   const [isMicMuted, setIsMicMuted] = useState(false);
+  const [apiModelName, setApiModelName] = useState(null); // State for API model name
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
   const micTrackRef = useRef(null);
@@ -67,6 +68,17 @@ export default function App() {
     const tokenResponse = await fetch(tokenUrl);
     const data = await tokenResponse.json();
     const EPHEMERAL_KEY = data.client_secret.value;
+
+    // Set the API model name from the token response
+    if (data.apiModel) {
+      setApiModelName(data.apiModel);
+      console.log("Using API Model from server:", data.apiModel);
+    } else {
+      // Fallback if not provided by server (should ideally not happen if server.js is updated)
+      const DEFAULT_CLIENT_MODEL = "gpt-4o-realtime-preview-2024-12-17";
+      setApiModelName(DEFAULT_CLIENT_MODEL);
+      console.warn(`API Model not received from server. Using client-side default: ${DEFAULT_CLIENT_MODEL}`);
+    }
 
     // Create a peer connection
     const pc = new RTCPeerConnection();
@@ -158,8 +170,15 @@ export default function App() {
     await pc.setLocalDescription(offer);
 
     const baseUrl = "https://api.openai.com/v1/realtime";
-    const model = "gpt-4o-realtime-preview-2024-12-17";
-    const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+    // Use the model name from the token response, or fallback
+    const modelToUse = data.apiModel || apiModelName || "gpt-4o-realtime-preview-2024-12-17";
+    if (!data.apiModel) {
+      // This warning is slightly redundant if the earlier block already warned,
+      // but good for confirming the fallback is active at point of use.
+      console.warn(`Using fallback model for SDP negotiation: ${modelToUse}`);
+    }
+    
+    const sdpResponse = await fetch(`${baseUrl}?model=${modelToUse}`, {
       method: "POST",
       body: offer.sdp,
       headers: {
@@ -247,182 +266,110 @@ export default function App() {
     sendClientEvent({ type: "response.create" });
   }
 
-  // Function to export the last AI audio response
-  async function exportLastAudio() {
-    console.log("[DEBUG] exportLastAudio called"); // DEBUG
-    console.log("[DEBUG] Current lastMessageAudio state:", lastMessageAudio); // DEBUG
-    
-    if (!lastMessageAudio || lastMessageAudio.size === 0) {
-      console.log("[DEBUG] No last message audio available or size is 0"); // DEBUG
+  // Generic function to export an audio blob
+  async function exportAudioBlob(audioBlob, exportType, filenamePrefix) {
+    if (!audioBlob || audioBlob.size === 0) {
+      console.log(`No audio data to export for type: ${exportType}`);
       setExportStatus("No audio to export");
-      setTimeout(() => setExportStatus(null), 3000); // Clear status after timeout
+      setTimeout(() => setExportStatus(null), 3000);
       return;
     }
 
+    setIsExporting(true);
+    setExportStatus(`Exporting ${exportType === 'last' ? 'last response' : 'full conversation'}...`);
+
     try {
-      setIsExporting(true);
-      setExportStatus("Exporting last response...");
-
-      // Request final chunks to ensure we have the latest data - This might be redundant if response.done already did it.
-      // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      //   console.log("Requesting final audio data in exportLastAudio");
-      //   mediaRecorderRef.current.requestData();
-      // }
-
-      // Short delay to ensure we have the latest data - May not be needed if blob is already finalized
-      // await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Convert audio blob to base64
       const reader = new FileReader();
-      reader.readAsDataURL(lastMessageAudio); // Use the state variable directly
-      
+      reader.readAsDataURL(audioBlob);
+
       reader.onloadend = async () => {
         try {
           let base64data = reader.result;
-          console.log("[DEBUG] FileReader success. Base64 data length:", base64data?.length); // DEBUG
-          
           if (!base64data) {
             throw new Error("FileReader resulted in null or undefined data.");
           }
 
-          console.log("[DEBUG] Sending last message audio data to /save-audio"); // DEBUG
+          // For 'full' export, check if the data is too large (optional, as per original logic)
+          if (exportType === 'full' && base64data.length > 10000000) { // ~10MB limit
+            console.log("Audio data for 'full' export is too large, trimming to last 10MB of data.");
+            // This substring logic might not be ideal for binary data, but replicates existing behavior.
+            // A more robust solution would be to handle this server-side or by re-encoding.
+            base64data = base64data.substring(base64data.length - 10000000);
+          }
           
-          // Send audio to server
+          console.log(`Sending ${exportType} audio data to /save-audio. Length: ${base64data.length}`);
+
           const response = await fetch('/save-audio', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               audioData: base64data,
-              isRecentMessage: true, // Keep this flag? Server might not use it.
-              exportType: 'last'
+              exportType: exportType,
+              // filenamePrefix: filenamePrefix // Server can use this if needed
             }),
           });
-          
-          console.log("[DEBUG] Server response status:", response.status); // DEBUG
-          
+
           const result = await response.json();
-          console.log("[DEBUG] Server response body:", result); // DEBUG
-          
-          if (result.success) {
-            console.log(`Last audio response saved as ${result.mp3.filename}`);
+          console.log(`Server response for ${exportType} export:`, result);
+
+          if (result.success && result.mp3 && result.mp3.filename) {
+            console.log(`${exportType === 'last' ? 'Last audio response' : 'Full audio conversation'} saved as ${result.mp3.filename}`);
             setExportStatus(`Saved as ${result.mp3.filename}`);
             setTimeout(() => setExportStatus(null), 3000);
           } else {
-            console.error("Server returned error:", result.error);
-            setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`); // Show error
-            setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
+            console.error(`Server returned error for ${exportType} export:`, result.error);
+            setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`);
+            setTimeout(() => setExportStatus(null), 5000);
           }
         } catch (error) {
-          console.error("[DEBUG] Error processing audio or fetch:", error); // DEBUG
+          console.error(`Error processing audio or fetching for ${exportType} export:`, error);
           setExportStatus(`Export failed: ${error.message}`);
-          setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
+          setTimeout(() => setExportStatus(null), 5000);
         } finally {
           setIsExporting(false);
         }
       };
-      
+
       reader.onerror = (error) => {
-        console.error("[DEBUG] Error reading audio data with FileReader:", error); // DEBUG
+        console.error(`FileReader error for ${exportType} export:`, error);
         setIsExporting(false);
-        setExportStatus("Export failed: FileReader error");
-        setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
+        setExportStatus("Export failed: Client-side file reading error");
+        setTimeout(() => setExportStatus(null), 5000);
       };
     } catch (error) {
-      console.error("[DEBUG] Error in exportLastAudio try block:", error); // DEBUG
+      console.error(`Error in exportAudioBlob for ${exportType}:`, error);
       setIsExporting(false);
       setExportStatus(`Export failed: ${error.message}`);
-      setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
+      setTimeout(() => setExportStatus(null), 5000);
     }
+  }
+
+  // Function to export the last AI audio response
+  async function exportLastAudio() {
+    console.log("Attempting to export last audio response...");
+    if (!lastMessageAudio || lastMessageAudio.size === 0) {
+      console.log("No last message audio available or size is 0 for export.");
+      setExportStatus("No audio to export");
+      setTimeout(() => setExportStatus(null), 3000);
+      return;
+    }
+    // The filename prefix can be customized if needed, or handled by the server based on exportType
+    await exportAudioBlob(lastMessageAudio, 'last', 'last_ai_response');
   }
 
   // Function to export all AI audio responses
   async function exportFullAudio() {
-    console.log("Exporting full AI audio conversation");
-    
+    console.log("Attempting to export full AI audio conversation...");
     if (!lastAudioResponse || lastAudioResponse.size === 0) {
-      console.log("No audio available to export");
+      console.log("No full conversation audio available or size is 0 for export.");
       setExportStatus("No audio to export");
+      setTimeout(() => setExportStatus(null), 3000); // Changed to return early like exportLastAudio
       return;
     }
-
-    try {
-      setIsExporting(true);
-      setExportStatus("Exporting full conversation...");
-
-      // Request final chunks to ensure we have the latest data
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        console.log("Requesting final audio data");
-        mediaRecorderRef.current.requestData();
-      }
-
-      // Short delay to ensure we have the latest data
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Convert audio blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(lastAudioResponse);
-      
-      reader.onloadend = async () => {
-        try {
-          let base64data = reader.result;
-          
-          // Check if the data is too large
-          if (base64data.length > 10000000) { // ~10MB limit
-            console.log("Audio data is too large, trimming to last 10MB");
-            base64data = base64data.substring(base64data.length - 10000000);
-          }
-          
-          console.log("Sending full audio data, length:", base64data.length);
-          
-          // Send audio to server
-          const response = await fetch('/save-audio', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-              audioData: base64data,
-              isRecentMessage: false,
-              exportType: 'full'
-            }),
-          });
-          
-          console.log("Server response status:", response.status);
-          
-          const result = await response.json();
-          
-          if (result.success) {
-            console.log(`Full audio conversation saved as ${result.mp3.filename}`);
-            setExportStatus(`Saved as ${result.mp3.filename}`);
-            setTimeout(() => setExportStatus(null), 3000);
-          } else {
-            console.error("Server returned error:", result.error);
-            setExportStatus("Export failed");
-            setTimeout(() => setExportStatus(null), 3000);
-          }
-        } catch (error) {
-          console.error("Error processing audio:", error);
-          setExportStatus("Export failed");
-          setTimeout(() => setExportStatus(null), 3000);
-        } finally {
-          setIsExporting(false);
-        }
-      };
-      
-      reader.onerror = () => {
-        console.error("Error reading audio data");
-        setIsExporting(false);
-        setExportStatus("Export failed");
-        setTimeout(() => setExportStatus(null), 3000);
-      };
-    } catch (error) {
-      console.error("Error exporting audio:", error);
-      setIsExporting(false);
-      setExportStatus("Export failed");
-      setTimeout(() => setExportStatus(null), 3000);
-    }
+    // The filename prefix can be customized if needed
+    await exportAudioBlob(lastAudioResponse, 'full', 'full_ai_conversation');
   }
 
   // Attach event listeners to the data channel when a new one is created
