@@ -272,3 +272,65 @@ const server = app.listen(port, () => {
     }
   })();
 });
+
+// Export app for testing purposes
+// and conditionally start the server
+let serverInstance = null;
+if (process.env.NODE_ENV !== 'test') {
+  serverInstance = app.listen(port, () => {
+    console.log(`Express server running on *:${port} (non-test mode)`);
+    
+    // Create a tunnel to make the server publicly accessible
+    (async () => {
+      try {
+        const subdomain = `app-${Date.now().toString().slice(-6)}`;
+        console.log(`Attempting to create tunnel with subdomain: ${subdomain}`);
+        const tunnel = await localtunnel({ 
+          port,
+          subdomain: subdomain,
+          allow_ip: ['0.0.0.0/0']
+        });
+        
+        console.log(`🌐 Public URL: ${tunnel.url}`);
+        console.log(`Subdomain: ${subdomain}`);
+        console.log(`Share this URL with others to access your application`);
+        
+        tunnel.on('close', () => {
+          console.log('Tunnel closed');
+        });
+        tunnel.on('error', (err) => {
+          console.error('Tunnel error (after connection):', err);
+        });
+
+      } catch (error) {
+        console.error(`Failed to create tunnel with subdomain: ${error.message}`);
+        console.log('Trying alternative tunnel configuration (without custom subdomain)...');
+        try {
+          const fallbackTunnel = await localtunnel({ port });
+          console.log(`🌐 Alternative Public URL: ${fallbackTunnel.url}`);
+          console.log(`Share this URL with others to access your application`);
+          
+          fallbackTunnel.on('close', () => {
+            console.log('Fallback tunnel closed');
+          });
+          fallbackTunnel.on('error', (err) => {
+            console.error('Fallback tunnel error (after connection):', err);
+          });
+        } catch (fallbackError) {
+          console.error(`Failed to create alternative tunnel: ${fallbackError.message}`);
+          console.log("\n===========================================================================");
+          console.log("🔴 Failed to create a public URL using localtunnel.");
+          console.log(`🟢 Application is running locally. Access it at http://localhost:${port}`);
+          console.log("===========================================================================\n");
+        }
+      }
+    })();
+  });
+} else {
+  // If in test mode, Vite might need to be closed explicitly if it was initialized
+  // This depends on how Vite's server instance is managed.
+  // For now, we assume tests will handle server lifecycle via supertest and app object.
+  console.log("Running in test mode. Server not started automatically.");
+}
+
+export { app, serverInstance, vite }; // Export vite in case tests need to close it

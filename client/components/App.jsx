@@ -393,11 +393,11 @@ export default function App() {
           console.log("Response completed (response.done), finalizing current message audio");
           setIsRecordingCurrentResponse(false); // Stop recording current response
           
-          // Always request the latest audio data - REMOVED this line as per plan
-          // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          //   console.log("Requesting final audio data before finalizing blob");
-          //   mediaRecorderRef.current.requestData();
-          // }
+          // Request final audio data to ensure all chunks are captured before creating the blob
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            console.log("Requesting final audio data for last message before finalizing blob.");
+            mediaRecorderRef.current.requestData();
+          }
           
           // Add a short delay to allow final data chunk to arrive (if any are pending from natural recorder interval)
           setTimeout(() => {
