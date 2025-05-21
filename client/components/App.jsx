@@ -369,10 +369,10 @@ export default function App() {
           let base64data = reader.result;
           
           // Check if the data is too large
-          if (base64data.length > 10000000) { // ~10MB limit
-            console.log("Audio data is too large, trimming to last 10MB");
-            base64data = base64data.substring(base64data.length - 10000000);
-          }
+          // if (base64data.length > 10000000) { // ~10MB limit
+          //   console.log("Audio data is too large, trimming to last 10MB");
+          //   base64data = base64data.substring(base64data.length - 10000000);
+          // }
           
           console.log("Sending full audio data, length:", base64data.length);
           
@@ -446,11 +446,11 @@ export default function App() {
           console.log("Response completed (response.done), finalizing current message audio");
           setIsRecordingCurrentResponse(false); // Stop recording current response
           
-          // Always request the latest audio data - REMOVED this line as per plan
-          // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          //   console.log("Requesting final audio data before finalizing blob");
-          //   mediaRecorderRef.current.requestData();
-          // }
+          // Always request the latest audio data
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            console.log("Requesting final audio data for current message before finalizing blob (response.done)");
+            mediaRecorderRef.current.requestData();
+          }
           
           // Add a short delay to allow final data chunk to arrive (if any are pending from natural recorder interval)
           setTimeout(() => {
