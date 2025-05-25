@@ -165,15 +165,17 @@ VOX MACHINA automatically records and processes audio sessions with a comprehens
 ### Recording Types
 
 - **WebM**: Raw audio format for highest quality preservation
-  - Filename formats: 
-    - `last-response-[timestamp].webm` (for last response exports)
-    - `full-conversation-[timestamp].webm` (for full conversation exports)
+  - Filename format: `vox-machina_character-name_export-type_YYYY-MM-DD_HH-MM-SS.webm`
+  - Examples:
+    - `vox-machina_sage-wizard_last-response_2025-01-15_14-30-25.webm`
+    - `vox-machina_cyberpunk-hacker_full-conversation_2025-01-15_14-35-12.webm`
   - Used for archival purposes and high-quality playback
   
 - **MP3**: Compressed format for easy sharing
-  - Filename formats:
-    - `last-response-[timestamp].mp3` (for last response exports)
-    - `full-conversation-[timestamp].mp3` (for full conversation exports)
+  - Filename format: `vox-machina_character-name_export-type_YYYY-MM-DD_HH-MM-SS.mp3`
+  - Examples:
+    - `vox-machina_sage-wizard_last-response_2025-01-15_14-30-25.mp3`
+    - `vox-machina_cyberpunk-hacker_full-conversation_2025-01-15_14-35-12.mp3`
   - Automatically converted from WebM for compatibility
   - Includes silence removal processing for better listening experience
 

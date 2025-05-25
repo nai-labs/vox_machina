@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "react-feather";
 
-// Removed isAISpeaking prop
+// Browser detection utility
+const isSafari = () => {
+  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+};
+
 export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicMute }) {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
@@ -9,6 +13,28 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
   const audioContextRef = useRef(null);
   const rotationRef = useRef(0);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+  const frameCountRef = useRef(0);
+  const lastFrameTimeRef = useRef(0);
+
+  // Performance settings based on browser
+  const performanceSettings = {
+    safari: {
+      targetFPS: 30, // Reduced from 60
+      fftSize: 256, // Reduced from 512
+      smoothingTimeConstant: 0.9, // Increased for smoother animation
+      skipFrames: 1, // Skip every other frame
+      simplifiedEffects: true
+    },
+    other: {
+      targetFPS: 60,
+      fftSize: 512,
+      smoothingTimeConstant: 0.85,
+      skipFrames: 0,
+      simplifiedEffects: false
+    }
+  };
+
+  const settings = isSafari() ? performanceSettings.safari : performanceSettings.other;
 
   // Set up the audio analyzer when the component mounts or when the audio stream changes
   useEffect(() => {
@@ -21,8 +47,8 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
 
     if (!analyserRef.current) {
       analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 512; // Increased for more detailed visualization
-      analyserRef.current.smoothingTimeConstant = 0.85;
+      analyserRef.current.fftSize = settings.fftSize;
+      analyserRef.current.smoothingTimeConstant = settings.smoothingTimeConstant;
     }
 
     // Connect the audio stream to the analyzer
@@ -36,7 +62,7 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
       }
       cancelAnimationFrame(animationRef.current);
     };
-  }, [audioStream]);
+  }, [audioStream, settings.fftSize, settings.smoothingTimeConstant]);
 
   // Handle canvas resizing
   useEffect(() => {
@@ -77,53 +103,68 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
     // Calculate the radius based on the smaller dimension
     const maxRadius = Math.min(centerX, centerY) * 0.85;
 
-    const draw = () => {
+    const draw = (currentTime) => {
+      frameCountRef.current++;
+      
+      // Frame rate limiting for performance
+      if (currentTime - lastFrameTimeRef.current < 1000 / settings.targetFPS) {
+        animationRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      
+      // Skip frames for Safari performance
+      if (settings.skipFrames > 0 && frameCountRef.current % (settings.skipFrames + 1) !== 0) {
+        animationRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      
+      lastFrameTimeRef.current = currentTime;
+      
       // Clear the canvas with a fade effect
-      ctx.fillStyle = 'rgba(10, 14, 23, 0.2)';
+      ctx.fillStyle = 'rgba(10, 14, 23, 0.3)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      // Draw grid background for cyberpunk effect
-      drawCyberpunkGrid(ctx, canvas.width, canvas.height);
+      // Draw background effects (simplified for Safari)
+      if (!settings.simplifiedEffects) {
+        drawCyberpunkGrid(ctx, canvas.width, canvas.height);
+      }
       
       // Get the frequency data
       analyserRef.current.getByteFrequencyData(dataArray);
       
-      // Slowly rotate the visualization (Removed isAISpeaking dependency, using a constant rotation for now)
-      rotationRef.current += 0.002; // Constant rotation speed
+      // Slower rotation for better performance
+      rotationRef.current += settings.simplifiedEffects ? 0.001 : 0.002;
       
-      // Draw the circular visualization (Removed isAISpeaking prop)
-      // Pass a constant 'true' or 'false' or derive activity from audio data if needed
-      // For now, let's assume it's always visually 'active' when the component is rendered with a stream
-      drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius, true); 
+      // Draw the circular visualization
+      drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius);
       
-      // Add scan line effect
-      drawScanLines(ctx, canvas.width, canvas.height);
-      
-      // Add subtle logo watermark
-      drawWatermark(ctx, canvas.width, canvas.height);
+      // Add effects (simplified for Safari)
+      if (!settings.simplifiedEffects) {
+        drawScanLines(ctx, canvas.width, canvas.height, centerX, centerY);
+        drawWatermark(ctx, canvas.width, canvas.height);
+      }
       
       // Continue the animation
       animationRef.current = requestAnimationFrame(draw);
     };
     
-    // Function to draw cyberpunk grid background
+    // Function to draw cyberpunk grid background (only for non-Safari)
     function drawCyberpunkGrid(ctx, width, height) {
       const gridSize = 40;
-      const gridOpacity = 0.1;
+      const gridOpacity = 0.05; // Reduced opacity for better performance
       
       ctx.strokeStyle = `rgba(10, 255, 255, ${gridOpacity})`;
       ctx.lineWidth = 0.5;
       
-      // Draw horizontal lines
-      for (let y = 0; y < height; y += gridSize) {
+      // Draw fewer grid lines for performance
+      for (let y = 0; y < height; y += gridSize * 2) {
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(width, y);
         ctx.stroke();
       }
       
-      // Draw vertical lines
-      for (let x = 0; x < width; x += gridSize) {
+      for (let x = 0; x < width; x += gridSize * 2) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
@@ -131,72 +172,65 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
       }
     }
     
-    // Function to draw scan lines
-    function drawScanLines(ctx, width, height) {
-      // Horizontal scan line
+    // Function to draw scan lines (simplified for Safari)
+    function drawScanLines(ctx, width, height, centerX, centerY) {
+      // Only horizontal scan line for performance
       const scanLineY = (Date.now() % 5000) / 5000 * height;
-      ctx.fillStyle = 'rgba(10, 255, 255, 0.15)';
-      ctx.fillRect(0, scanLineY, width, 2);
-      
-      // Circular scan line
-      const scanRadius = (Date.now() % 3000) / 3000 * Math.min(centerX, centerY);
-      ctx.strokeStyle = 'rgba(0, 170, 255, 0.2)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, scanRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.fillStyle = 'rgba(10, 255, 255, 0.1)';
+      ctx.fillRect(0, scanLineY, width, 1);
     }
     
     // Function to draw a subtle watermark
     function drawWatermark(ctx, width, height) {
       ctx.save();
-      ctx.globalAlpha = 0.05;
-      ctx.font = '12px "Share Tech Mono"';
+      ctx.globalAlpha = 0.03;
+      ctx.font = '10px monospace';
       ctx.fillStyle = 'rgba(10, 255, 255, 1)';
       ctx.textAlign = 'center';
-      ctx.fillText('VOX MACHINA', width / 2, height - 20);
+      ctx.fillText('VOX MACHINA', width / 2, height - 15);
       ctx.restore();
     }
     
-    // Function to draw the radial visualization (Removed isActive parameter)
+    // Function to draw the radial visualization (optimized)
     function drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius) {
-      const numBars = dataArray.length / 2; // Use half the data for a cleaner visualization
+      // Use fewer bars for better performance
+      const numBars = settings.simplifiedEffects ? 
+        Math.floor(dataArray.length / 4) : 
+        Math.floor(dataArray.length / 2);
+      
       const angleStep = (Math.PI * 2) / numBars;
-      const isActive = true; // Assuming always active for visual effect when stream present
-      // Base radius when not speaking
+      const isActive = true;
       const baseRadius = maxRadius * 0.3;
       
-      // Draw outer circle
-      ctx.strokeStyle = 'rgba(10, 255, 255, 0.2)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Simplified outer circle (only for non-Safari)
+      if (!settings.simplifiedEffects) {
+        ctx.strokeStyle = 'rgba(10, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       
-      // Draw inner circle
-      ctx.strokeStyle = 'rgba(0, 170, 255, 0.3)';
+      // Inner circle
+      ctx.strokeStyle = 'rgba(0, 170, 255, 0.2)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2);
       ctx.stroke();
       
-      // Add glow effect
-      ctx.shadowBlur = isActive ? 15 : 5;
-      ctx.shadowColor = 'rgba(10, 255, 255, 0.7)';
+      // Reduced glow effect for Safari
+      if (!settings.simplifiedEffects) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'rgba(10, 255, 255, 0.5)';
+      }
       
-      // Draw the bars
+      // Draw the bars with reduced complexity
       for (let i = 0; i < numBars; i++) {
-        const amplitude = dataArray[i] / 255;
+        const dataIndex = settings.simplifiedEffects ? i * 4 : i * 2;
+        const amplitude = dataArray[dataIndex] / 255;
         
         // Calculate dynamic radius based on audio data
-        let barHeight;
-        if (isActive) {
-          barHeight = baseRadius + (amplitude * (maxRadius - baseRadius));
-        } else {
-          // When not speaking, create a subtle pulsing effect
-          const pulse = Math.sin(Date.now() / 1000) * 0.1 + 0.9;
-          barHeight = baseRadius + (maxRadius - baseRadius) * 0.1 * pulse;
-        }
+        const barHeight = baseRadius + (amplitude * (maxRadius - baseRadius));
         
         // Calculate angle with rotation
         const angle = i * angleStep + rotationRef.current;
@@ -207,64 +241,54 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
         const endX = centerX + Math.cos(angle) * barHeight;
         const endY = centerY + Math.sin(angle) * barHeight;
         
-        // Create gradient for the lines
-        const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
-        
-        if (isActive) {
-          // Active colors - more vibrant
+        // Simplified colors for Safari
+        if (settings.simplifiedEffects) {
+          ctx.strokeStyle = `rgba(10, 255, 255, ${0.4 + amplitude * 0.4})`;
+          ctx.lineWidth = 1 + amplitude;
+        } else {
+          // Create gradient for the lines
+          const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
           gradient.addColorStop(0, 'rgba(0, 170, 255, 0.7)');
           gradient.addColorStop(1, 'rgba(10, 255, 255, 0.9)');
-        } else {
-          // Idle colors - more subdued
-          gradient.addColorStop(0, 'rgba(0, 170, 255, 0.3)');
-          gradient.addColorStop(1, 'rgba(10, 255, 255, 0.4)');
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = 1 + amplitude * 2;
         }
         
         // Draw the line
-        ctx.strokeStyle = gradient;
-        ctx.lineWidth = isActive ? 2 + amplitude * 2 : 1;
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
         ctx.stroke();
         
-        // Add dots at the end of lines for active state
-        if (isActive && amplitude > 0.5) {
-          ctx.fillStyle = 'rgba(10, 255, 255, 0.9)';
+        // Add dots only for high amplitude and non-Safari
+        if (!settings.simplifiedEffects && amplitude > 0.6) {
+          ctx.fillStyle = 'rgba(10, 255, 255, 0.8)';
           ctx.beginPath();
-          ctx.arc(endX, endY, 2 + amplitude * 3, 0, Math.PI * 2);
+          ctx.arc(endX, endY, 1 + amplitude * 2, 0, Math.PI * 2);
           ctx.fill();
         }
       }
       
-      // Draw center circle
-      const centerGradient = ctx.createRadialGradient(
-        centerX, centerY, 0,
-        centerX, centerY, baseRadius
-      );
-      
-      if (isActive) {
-        centerGradient.addColorStop(0, 'rgba(10, 255, 255, 0.7)');
-        centerGradient.addColorStop(1, 'rgba(0, 170, 255, 0.1)');
-      } else {
-        centerGradient.addColorStop(0, 'rgba(10, 255, 255, 0.3)');
-        centerGradient.addColorStop(1, 'rgba(0, 170, 255, 0.05)');
-      }
-      
-      ctx.fillStyle = centerGradient;
+      // Simplified center circle
+      ctx.fillStyle = settings.simplifiedEffects ? 
+        'rgba(10, 255, 255, 0.2)' : 
+        'rgba(10, 255, 255, 0.4)';
       ctx.beginPath();
-      ctx.arc(centerX, centerY, baseRadius * 0.8, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, baseRadius * 0.6, 0, Math.PI * 2);
       ctx.fill();
+      
+      // Reset shadow
+      ctx.shadowBlur = 0;
     }
 
     // Start the animation
-    draw();
+    animationRef.current = requestAnimationFrame(draw);
 
     // Clean up
     return () => {
       cancelAnimationFrame(animationRef.current);
     };
-  }, [canvasSize]); // Removed isAISpeaking from dependency array
+  }, [canvasSize, settings]);
 
   return (
     <div className="waveform-container w-full h-full relative">
@@ -272,14 +296,11 @@ export default function WaveformVisualizer({ audioStream, isMicMuted, toggleMicM
         ref={canvasRef} 
         className="w-full h-full rounded"
       />
-      {/* Removed conditional text based on isAISpeaking */}
-      {/* Optionally add a default state message if needed */}
-      {/* 
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="text-neon-primary text-sm opacity-50 flex flex-col items-center">
-            <span>VOX MACHINA ACTIVE</span>
-            <span className="text-xs mt-1">AWAITING TRANSMISSION</span>
-          </div>
+      
+      {/* Performance indicator for Safari */}
+      {isSafari() && (
+        <div className="absolute top-2 left-2 text-xs text-neon-secondary opacity-50">
+          SAFARI OPTIMIZED
         </div>
       )}
       

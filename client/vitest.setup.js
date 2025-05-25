@@ -94,41 +94,50 @@ global.Image = class {
   }
 };
 
-// Mock Character Data (if it's simple, otherwise consider more robust mocking)
+// Mock Character Data - include the "bill" character that CharacterSelect expects
 vi.mock('../utils/characterData', () => {
   const mockCharacters = [
+    { 
+      id: 'bill', 
+      name: 'Bill Cipher', 
+      description: 'A chaotic entity.',
+      voice: 'echo',
+      temperature: 0.8,
+      promptName: 'bill-prompt',
+      avatarPath: 'mock-bill-avatar.png'
+    },
     { 
       id: 'grog', 
       name: 'Grog Strongjaw', 
       description: 'A mighty barbarian.',
-      voice: 'grog-voice',
+      voice: 'alloy',
       temperature: 0.8,
       promptName: 'grog-prompt',
-      thumbnail: 'mock-grog-thumb.png' // ensure all expected fields are present
+      avatarPath: 'mock-grog-avatar.png'
     },
     { 
       id: 'default', 
       name: 'Default Character',
       description: 'A default character.',
-      voice: 'default-voice',
+      voice: 'sage',
       temperature: 0.5,
       promptName: 'default-prompt',
-      thumbnail: 'mock-default-thumb.png'
-    },
-    // Add other characters if your tests interact with them
+      avatarPath: 'mock-default-avatar.png'
+    }
   ];
 
   return {
+    getAllCharacters: vi.fn(() => mockCharacters),
     getCharacterById: vi.fn((id) => {
-      const character = mockCharacters.find(c => c.id === id);
-      return character || { // Fallback to ensure it always returns a valid structure
-        id: String(id), // Ensure id is always a string
+      const character = mockCharacters.find(c => c.id === String(id));
+      return character || { 
+        id: String(id), 
         name: `Mock Character ${id}`,
         description: 'A mock character for testing.',
-        voice: 'mock-voice',
+        voice: 'sage',
         temperature: 0.7,
         promptName: 'mock-prompt',
-        thumbnail: 'mock-fallback-thumb.png'
+        avatarPath: 'mock-fallback-avatar.png'
       };
     }),
     characters: mockCharacters,

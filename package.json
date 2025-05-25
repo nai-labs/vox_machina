@@ -1,4 +1,10 @@
 {
+  "name": "vox-machina",
+  "version": "1.0.0",
+  "description": "Neural Voice Interface for OpenAI Realtime API testing with cyberpunk-inspired interface",
+  "author": "VOX MACHINA Team",
+  "license": "MIT",
+  "keywords": ["openai", "realtime-api", "voice-ai", "webrtc", "cyberpunk", "neural-interface"],
   "type": "module",
   "scripts": {
     "dev": "node server.js --dev",

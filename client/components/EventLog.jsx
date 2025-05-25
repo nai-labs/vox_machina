@@ -80,8 +80,30 @@ function Event({ event, timestamp }) {
 export default function EventLog({ events }) {
   const eventsToDisplay = [];
   let deltaEvents = {};
+  
+  // Create a stable unique key for each event
+  const createEventKey = (event, index) => {
+    // Use event_id if available
+    if (event.event_id) {
+      return event.event_id;
+    }
+    
+    // For events without event_id, create a stable key using multiple properties
+    const keyParts = [
+      event.type,
+      event.timestamp || Date.now(),
+      index, // Use index as last resort to ensure uniqueness
+    ];
+    
+    // Add additional identifying properties if available
+    if (event.item?.id) keyParts.push(event.item.id);
+    if (event.response?.id) keyParts.push(event.response.id);
+    if (event.conversation?.id) keyParts.push(event.conversation.id);
+    
+    return keyParts.join('-');
+  };
 
-  events.forEach((event) => {
+  events.forEach((event, index) => {
     if (event.type.endsWith("delta")) {
       if (deltaEvents[event.type]) {
         // for now just log a single event per render pass
@@ -93,7 +115,7 @@ export default function EventLog({ events }) {
 
     eventsToDisplay.push(
       <Event
-        key={event.event_id || `${event.type}-${Math.random()}`}
+        key={createEventKey(event, index)}
         event={event}
         timestamp={new Date().toLocaleTimeString()}
       />,
