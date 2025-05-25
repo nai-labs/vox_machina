@@ -56,7 +56,7 @@ function SessionStopped({ startSession }) {
   );
 }
 
-function SessionActive({ stopSession, sendTextMessage }) {
+function SessionActive({ stopSession, sendTextMessage, currentProvider }) { // Added currentProvider
   const [message, setMessage] = useState("");
   const [commandPrefix, setCommandPrefix] = useState(">");
   
@@ -126,15 +126,17 @@ export default function SessionControls({
   sendTextMessage,
   serverEvents,
   isSessionActive,
+  currentProvider, // Added currentProvider
 }) {
   return (
     <div className="flex gap-4 h-full w-full">
       {isSessionActive ? (
         <SessionActive
           stopSession={stopSession}
-          sendClientEvent={sendClientEvent}
-          sendTextMessage={sendTextMessage}
+          sendClientEvent={sendClientEvent} // This is App.jsx's sendClientEvent, already OpenAI specific
+          sendTextMessage={sendTextMessage} // This is the generic one from App.jsx
           serverEvents={serverEvents}
+          currentProvider={currentProvider} // Pass down
         />
       ) : (
         <SessionStopped startSession={startSession} />

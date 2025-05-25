@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { getAllCharacters } from "../utils/characterData";
-import { User, Zap, Heart, MessageCircle, PhoneCall, Volume2, Thermometer, Mic, Book, Terminal } from "react-feather";
+import { User, Zap, Heart, MessageCircle, PhoneCall, Volume2, Thermometer, Mic, Book, Terminal, Brain } from "react-feather"; // Added Brain
 
-export default function CharacterSelect({ onSelectCharacter }) {
+export default function CharacterSelect({ onSelectCharacter, currentProvider }) { // Added currentProvider prop
   const [selectedCharacterId, setSelectedCharacterId] = useState("bill");
   const [temperature, setTemperature] = useState(0.8);
   const [selectedVoice, setSelectedVoice] = useState(null);
-  const characters = getAllCharacters();
+  const characters = getAllCharacters(); // This might need to filter/adapt based on provider
 
   const handleSelect = (characterId) => {
     setSelectedCharacterId(characterId);
@@ -116,7 +116,7 @@ export default function CharacterSelect({ onSelectCharacter }) {
         <div>
           <div className="flex items-center gap-1 mb-1">
             <Volume2 size={14} className="text-neon-primary" />
-            <label className="text-xs">VOICE PROFILE</label>
+            <label className="text-xs">VOICE PROFILE ({currentProvider.toUpperCase()})</label>
           </div>
           <div className="terminal-select-wrapper">
             <select
@@ -124,15 +124,34 @@ export default function CharacterSelect({ onSelectCharacter }) {
               onChange={(e) => setSelectedVoice(e.target.value === "default" ? null : e.target.value)}
               className="terminal-select w-full text-sm p-1.5 bg-cyber-dark border border-neon-primary text-cyber-text"
             >
-              <option value="default" className="bg-cyber-dark text-neon-secondary">Default ({characters.find(c => c.id === selectedCharacterId)?.voice || "sage"})</option>
-              <option value="alloy" className="bg-cyber-dark text-neon-primary">Alloy</option>
-              <option value="ash" className="bg-cyber-dark text-neon-primary">Ash</option>
-              <option value="ballad" className="bg-cyber-dark text-neon-primary">Ballad</option>
-              <option value="coral" className="bg-cyber-dark text-neon-tertiary">Coral</option>
-              <option value="echo" className="bg-cyber-dark text-neon-primary">Echo</option>
-              <option value="sage" className="bg-cyber-dark text-neon-secondary">Sage</option>
-              <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
-              <option value="verse" className="bg-cyber-dark text-neon-primary">Verse</option>
+              <option value="default" className="bg-cyber-dark text-neon-secondary">
+                Default ({characters.find(c => c.id === selectedCharacterId)?.voice || (currentProvider === 'openai' ? "sage" : "Kore")})
+              </option>
+              {currentProvider === 'openai' && (
+                <>
+                  <option value="alloy" className="bg-cyber-dark text-neon-primary">Alloy</option>
+                  <option value="ash" className="bg-cyber-dark text-neon-primary">Ash</option>
+                  <option value="ballad" className="bg-cyber-dark text-neon-primary">Ballad</option>
+                  <option value="coral" className="bg-cyber-dark text-neon-tertiary">Coral</option>
+                  <option value="echo" className="bg-cyber-dark text-neon-primary">Echo</option>
+                  <option value="sage" className="bg-cyber-dark text-neon-secondary">Sage</option>
+                  <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
+                  <option value="verse" className="bg-cyber-dark text-neon-primary">Verse</option>
+                </>
+              )}
+              {currentProvider === 'gemini' && (
+                <>
+                  {/* Gemini voices from PDF */}
+                  <option value="Puck" className="bg-cyber-dark text-neon-primary">Puck</option>
+                  <option value="Charon" className="bg-cyber-dark text-neon-primary">Charon</option>
+                  <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
+                  <option value="Fenrir" className="bg-cyber-dark text-neon-primary">Fenrir</option>
+                  <option value="Aoede" className="bg-cyber-dark text-neon-tertiary">Aoede</option>
+                  <option value="Leda" className="bg-cyber-dark text-neon-primary">Leda</option>
+                  <option value="Orus" className="bg-cyber-dark text-neon-primary">Orus</option>
+                  <option value="Zephyr" className="bg-cyber-dark text-neon-primary">Zephyr</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -142,8 +161,8 @@ export default function CharacterSelect({ onSelectCharacter }) {
         onClick={handleConfirm}
         className="terminal-button flex items-center gap-2 px-5 py-2 text-base"
       >
-        <Zap className="text-neon-primary" size={16} />
-        <span className="neon-text">INITIALIZE SELECTED PERSONA</span>
+        <Brain className="text-neon-primary" size={16} /> {/* Changed Icon */}
+        <span className="neon-text">INITIALIZE ({currentProvider.toUpperCase()})</span>
       </button>
     </div>
   );

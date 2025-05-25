@@ -5,9 +5,11 @@ import SessionControls from "./SessionControls";
 import WaveformVisualizer from "./WaveformVisualizer";
 import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
-import { Download, Cpu, Terminal, Zap, Activity, User, Save } from "react-feather";
+import { Download, Cpu, Terminal, Zap, Activity, User, Save, Settings } from "react-feather"; // Added Settings
 import { useAudioRecording } from "../hooks/useAudioRecording";
-import { useWebRTCSession } from "../hooks/useWebRTCSession";
+// import { useWebRTCSession } from "../hooks/useWebRTCSession"; // Old import
+import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js"; // New OpenAI provider
+import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js"; // New Gemini provider
 import { useAudioExport } from "../hooks/useAudioExport";
 
 export default function App() {
@@ -15,14 +17,21 @@ export default function App() {
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
+  const [currentProviderType, setCurrentProviderType] = useState('openai'); // 'openai' or 'gemini'
   
   // Track processed events to prevent duplicates
   const processedEventsRef = useRef(new Set());
 
   // Custom hooks
   const audioRecording = useAudioRecording();
-  const webrtcSession = useWebRTCSession();
   const audioExport = useAudioExport();
+
+  // Instantiate providers - only one will be effectively used based on currentProviderType
+  const openaiSession = useOpenAISession();
+  const geminiSession = useGeminiSession();
+
+  // currentSession will point to the active provider's hook result
+  const currentSession = currentProviderType === 'openai' ? openaiSession : geminiSession;
 
   function handleSelectCharacter(character) {
     setSelectedCharacter(character);
@@ -34,32 +43,61 @@ export default function App() {
   }
   
   async function startSession() {
-    // Clear processed events when starting a new session
     processedEventsRef.current.clear();
-    
-    await webrtcSession.startSession(selectedCharacter, (stream) => {
-      audioRecording.setupMediaRecorder(stream);
-    });
+    setEvents([]); // Clear UI events on new session start
+
+    if (currentProviderType === 'openai') {
+      await openaiSession.startSession(selectedCharacter, (stream) => {
+        audioRecording.setupMediaRecorder(stream); // OpenAI provides a MediaStream
+      });
+    } else if (currentProviderType === 'gemini') {
+      // Gemini provider will use callbacks for events and audio chunks
+      await geminiSession.startSession(
+        selectedCharacter,
+        (geminiEvent) => { // onEventReceived
+          // Process Gemini text events, status, transcriptions etc.
+          console.log('[Gemini Event]', geminiEvent);
+          const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}`;
+          if (processedEventsRef.current.has(eventId)) return;
+          processedEventsRef.current.add(eventId);
+          setEvents((prev) => [geminiEvent, ...prev]);
+
+          // TODO: Adapt audio recording triggers for Gemini events
+        },
+        (audioChunk) => { // onAudioChunkReceived
+          // TODO: Handle incoming PCM audio chunks from Gemini
+          console.log('[Gemini Audio Chunk]', audioChunk ? audioChunk.byteLength : 'null');
+        }
+      );
+    }
   }
 
   function stopSession() {
-    webrtcSession.stopSession(() => {
+    currentSession.stopSession(() => {
       audioRecording.stopRecording();
       audioRecording.clearAudioHistory();
     });
   }
 
+  // sendClientEvent is specific to OpenAI's event structure via data channel.
   function sendClientEvent(message) {
-    webrtcSession.sendClientEvent(message, setEvents);
+    if (currentProviderType === 'openai') {
+      openaiSession.sendClientEvent(message, setEvents);
+    } else {
+      // Gemini might have a different way or might not use generic client events.
+      // For now, this function is OpenAI-specific.
+      console.warn("sendClientEvent called for non-OpenAI provider. Ignoring.");
+    }
   }
 
   function sendTextMessage(message) {
-    webrtcSession.sendTextMessage(message, setEvents);
+    // Both providers should have a sendTextMessage method.
+    currentSession.sendTextMessage(message, setEvents);
   }
 
   // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
-    if (webrtcSession.dataChannel) {
+    if (currentProviderType === 'openai' && openaiSession.dataChannel) { // Check provider type
       const handleMessage = (e) => {
         const eventData = JSON.parse(e.data);
         // Create a unique identifier for the event
@@ -90,39 +128,60 @@ export default function App() {
         }
       };
 
-      webrtcSession.dataChannel.addEventListener("message", handleMessage);
+      openaiSession.dataChannel.addEventListener("message", handleMessage); // Corrected: openaiSession
 
       const handleOpen = () => {
         console.log("Data channel opened");
-        webrtcSession.setIsSessionActive(true);
+        openaiSession.setIsSessionActive(true); // Corrected: openaiSession
         setEvents([]); // Clear UI events
         processedEventsRef.current.clear(); // Clear processed event IDs on new session
         
         setTimeout(() => {
           console.log("Session fully initialized");
-          webrtcSession.isSessionInitializedRef.current = true;
+          openaiSession.isSessionInitializedRef.current = true; // Corrected: openaiSession
         }, 2000);
       };
-      webrtcSession.dataChannel.addEventListener("open", handleOpen);
+      openaiSession.dataChannel.addEventListener("open", handleOpen); // Corrected: openaiSession
 
       // Cleanup function
       return () => {
-        if (webrtcSession.dataChannel) {
-          webrtcSession.dataChannel.removeEventListener("message", handleMessage);
-          webrtcSession.dataChannel.removeEventListener("open", handleOpen);
+        if (openaiSession.dataChannel) { // Corrected: openaiSession
+          openaiSession.dataChannel.removeEventListener("message", handleMessage); // Corrected: openaiSession
+          openaiSession.dataChannel.removeEventListener("open", handleOpen); // Corrected: openaiSession
         }
       };
     }
     // Ensure all dependencies that are used inside the effect and can change are listed.
-    // audioRecording methods (startRecordingResponse, stopRecordingResponse) are stable due to useCallback.
-    // webrtcSession methods (setIsSessionActive) and refs (isSessionInitializedRef) should be stable or handled carefully if they cause re-runs.
-    // For simplicity, assuming audioRecording and webrtcSession objects themselves are stable references from their hooks.
-  }, [webrtcSession.dataChannel, audioRecording, webrtcSession]);
+  }, [currentProviderType, openaiSession, openaiSession.dataChannel, audioRecording]); // Updated dependencies
 
   // Handle splash screen completion
   const handleSplashComplete = () => {
     setShowSplashScreen(false);
   };
+
+  const ProviderToggle = () => (
+    <div className="flex items-center gap-2 p-2 rounded-md bg-cyber-dark-secondary border border-neon-secondary shadow-lg">
+      <span className="text-xs text-neon-secondary uppercase tracking-wider mr-2">Provider:</span>
+      <button
+        onClick={() => setCurrentProviderType('openai')}
+        disabled={currentSession.isSessionActive}
+        className={`terminal-button px-3 py-1 text-sm ${
+          currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+        } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        OpenAI
+      </button>
+      <button
+        onClick={() => setCurrentProviderType('gemini')}
+        disabled={currentSession.isSessionActive}
+        className={`terminal-button px-3 py-1 text-sm ${
+          currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+        } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        Gemini
+      </button>
+    </div>
+  );
 
   return (
     <div className="bg-cyber-dark text-cyber-text font-cyber">
@@ -161,6 +220,8 @@ export default function App() {
                 </div>
                 <h1 className="glitch-text neon-text" data-text="VOX MACHINA CONSOLE">VOX MACHINA CONSOLE</h1>
               </div>
+
+              <ProviderToggle /> {/* Added Provider Toggle UI */}
               
               {/* Logo in header */}
               <div className="h-14 relative">
@@ -209,19 +270,20 @@ export default function App() {
               {/* AI Audio Waveform Visualizer or Character Selection */}
               <div className="terminal-panel w-full flex-grow mb-4">
                 <div className="terminal-header flex items-center justify-between">
-                  {!webrtcSession.isSessionActive && isCharacterSelectionMode ? (
+                  {/* Title changes based on mode and provider */}
+                  {!currentSession.isSessionActive && isCharacterSelectionMode ? (
                     <>
                       <span className="flex items-center gap-2">
                         <User size={16} className="text-neon-primary" />
-                        VOX MACHINA PERSONA SELECTION
+                        PERSONA SELECTION ({currentProviderType.toUpperCase()})
                       </span>
-                      <div className="text-xs opacity-70">[SELECT A CHARACTER TO CONTINUE]</div>
+                      <div className="text-xs opacity-70">[SELECT CHARACTER TO CONTINUE]</div>
                     </>
                   ) : (
                     <>
                       <span className="flex items-center gap-2">
                         <Activity size={16} className="text-neon-primary" />
-                        VOX MACHINA AUDIO VISUALIZATION
+                        AUDIO VISUALIZATION ({currentProviderType.toUpperCase()})
                       </span>
                       <div className={`text-xs ${audioRecording.isRecordingCurrentResponse ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
                         {audioRecording.isRecordingCurrentResponse ? "TRANSMITTING" : "IDLE"}
@@ -230,14 +292,15 @@ export default function App() {
                   )}
                 </div>
                 <div className="terminal-content h-full relative">
-                  {!webrtcSession.isSessionActive && isCharacterSelectionMode ? (
-                    <CharacterSelect onSelectCharacter={handleSelectCharacter} />
-                  ) : webrtcSession.audioElement.current && webrtcSession.audioElement.current.srcObject ? (
+                  {!currentSession.isSessionActive && isCharacterSelectionMode ? (
+                    <CharacterSelect onSelectCharacter={handleSelectCharacter} currentProvider={currentProviderType} />
+                  ) : currentProviderType === 'openai' && currentSession.audioElement.current && currentSession.audioElement.current.srcObject ? (
+                    // OpenAI audio visualization (existing logic)
                     <>
                       <WaveformVisualizer 
-                        audioStream={webrtcSession.audioElement.current.srcObject} 
-                        isMicMuted={webrtcSession.isMicMuted}
-                        toggleMicMute={webrtcSession.toggleMicMute}
+                        audioStream={currentSession.audioElement.current.srcObject} 
+                        isMicMuted={currentSession.isMicMuted}
+                        toggleMicMute={currentSession.toggleMicMute}
                       />
                       
                       {/* Export buttons */}
@@ -274,7 +337,12 @@ export default function App() {
                         </div>
                       )}
                     </>
-                  ) : !webrtcSession.isSessionActive && selectedCharacter ? (
+                  ) : currentProviderType === 'gemini' && currentSession.isSessionActive ? (
+                     // Placeholder for Gemini audio visualization / UI
+                    <div className="flex items-center justify-center h-full text-neon-secondary">
+                      Gemini Audio Session Active (Visualization TBD)
+                    </div>
+                  ) : !currentSession.isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">
                       <div className="terminal-panel p-6 border-neon-primary max-w-md">
                         <div className="terminal-header flex items-center justify-between mb-4">
@@ -327,18 +395,19 @@ export default function App() {
                 <div className="terminal-header flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Terminal size={16} />
-                    COMMAND INTERFACE
+                    COMMAND INTERFACE ({currentProviderType.toUpperCase()})
                   </span>
-                  <div className="text-xs opacity-70">[STATUS: {webrtcSession.isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
+                  <div className="text-xs opacity-70">[STATUS: {currentSession.isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
                 </div>
                 <div className="terminal-content h-full">
                   <SessionControls
                     startSession={startSession}
                     stopSession={stopSession}
-                    sendClientEvent={sendClientEvent}
+                    sendClientEvent={sendClientEvent} // Note: currently OpenAI specific
                     sendTextMessage={sendTextMessage}
                     events={events}
-                    isSessionActive={webrtcSession.isSessionActive}
+                    isSessionActive={currentSession.isSessionActive}
+                    currentProvider={currentProviderType} // Pass provider to disable irrelevant controls
                   />
                 </div>
               </div>

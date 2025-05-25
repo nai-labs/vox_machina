@@ -6,6 +6,8 @@ import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import localtunnel from "localtunnel";
+import { WebSocketServer } from "ws"; // Added for WebSocket
+import { GoogleGenerativeAI } from "@google/generative-ai"; // Added for Gemini
 import { getCharacterPromptById } from "./server-utils.js";
 
 // Configure ffmpeg to use the static binary
@@ -13,9 +15,12 @@ ffmpeg.setFfmpegPath(ffmpegStatic);
 
 const app = express();
 const port = process.env.PORT || 3000;
-const apiKey = process.env.OPENAI_API_KEY;
+const openAIApiKey = process.env.OPENAI_API_KEY; // Renamed for clarity
+const geminiApiKey = process.env.GEMINI_API_KEY; // Added for Gemini
 
 const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview-2024-12-17";
+// TODO: Define default Gemini model
+// const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-live-001"; // Example from PDF
 
 // Configure Vite middleware for React client
 const vite = await createViteServer({
@@ -68,7 +73,7 @@ app.get("/token", async (req, res) => {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${openAIApiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -283,6 +288,121 @@ if (process.env.NODE_ENV !== 'test') {
     
     // Create tunnel in production mode
     createTunnel(port);
+
+    // Setup WebSocket server for Gemini
+    const wss = new WebSocketServer({ server: serverInstance }); // Attach to existing HTTP server
+
+    wss.on('connection', (ws, req) => {
+      if (req.url === '/ws/gemini') {
+        console.log('Client connected to /ws/gemini');
+
+        if (!geminiApiKey) {
+          console.error('GEMINI_API_KEY is not set. Closing WebSocket connection.');
+          ws.terminate();
+          return;
+        }
+
+        // Initialize GoogleGenerativeAI
+        const genAI = new GoogleGenerativeAI(geminiApiKey);
+        let geminiSession = null; // To store the active Gemini Live API session
+        let clientWantsAudio = false; // Determined by client's initial config
+
+        console.log('Client connected to /ws/gemini. Waiting for initial config.');
+
+        ws.on('message', async (message) => {
+          const messageString = message.toString();
+          console.log('Received from client for /ws/gemini:', messageString);
+
+          if (!geminiSession) {
+            // Expecting the first message to be a configuration object
+            try {
+              const clientConfig = JSON.parse(messageString);
+              console.log('Received client config for Gemini:', clientConfig);
+
+              // TODO: Validate clientConfig and extract necessary parameters
+              // For now, assume clientConfig contains { characterId, responseModality: 'TEXT' | 'AUDIO', ... }
+              // const character = getCharacterPromptById(clientConfig.characterId || 'default');
+              // if (!character) {
+              //   ws.send(JSON.stringify({ error: 'Character not found' }));
+              //   ws.terminate();
+              //   return;
+              // }
+
+              // clientWantsAudio = clientConfig.responseModality === 'AUDIO';
+              
+              // const geminiModelName = clientConfig.model || "gemini-2.0-flash-live-001"; // Or from character config
+              // const geminiSdkConfig = {
+              //   response_modalities: [clientConfig.responseModality || "TEXT"],
+              //   system_instruction: { parts: [{ text: character.prompt }] },
+              //   // TODO: Add speech_config, tool_config etc. based on clientConfig and PDF
+              // };
+
+              // console.log(`Attempting to connect to Gemini Live API with model: ${geminiModelName}`);
+              // console.log(`Gemini SDK Config:`, geminiSdkConfig);
+
+              // This is a conceptual placeholder based on Python SDK.
+              // The actual JS SDK usage for Live API needs to be verified.
+              // It might be `genAI.getGenerativeModel({ model: geminiModelName }).startChat()`
+              // or a more specific method for Live API if available.
+              // For now, we'll simulate the connection setup.
+              
+              // Placeholder: Assume connection is successful and store a mock session
+              geminiSession = {
+                send: async (data) => console.log(`[MOCK Gemini] Would send to Gemini: ${data}`),
+                close: () => console.log('[MOCK Gemini] Session closed'),
+                // In a real scenario, this would be the SDK's session object
+              };
+              console.log('Mock Gemini session established.');
+              ws.send(JSON.stringify({ status: 'Gemini session initialized (mock)' }));
+
+              // TODO: If using the actual SDK, set up listeners for Gemini responses here
+              // and forward them to `ws.send()`
+
+            } catch (e) {
+              console.error('Failed to parse client config or setup Gemini session:', e);
+              ws.send(JSON.stringify({ error: 'Invalid initial configuration for Gemini session.' }));
+              ws.terminate();
+            }
+          } else {
+            // Forward subsequent messages to the active Gemini session
+            try {
+              // Assuming message is text for now. Audio would need different handling.
+              // await geminiSession.send(messageString); // Conceptual
+              console.log(`[MOCK Gemini] Forwarding to Gemini: ${messageString}`);
+              // Simulate Gemini echoing back for now
+              ws.send(JSON.stringify({ type: 'gemini_response', text: `Gemini echo: ${messageString}` }));
+            } catch (error) {
+              console.error('Error forwarding message to Gemini or processing response:', error);
+              ws.send(JSON.stringify({ error: 'Failed to communicate with Gemini.' }));
+            }
+          }
+        });
+
+        ws.on('close', () => {
+          console.log('Client disconnected from /ws/gemini');
+          if (geminiSession) {
+            // geminiSession.close(); // Conceptual: Close the connection to Gemini API
+            console.log('[MOCK Gemini] Closing Gemini session due to client disconnect.');
+            geminiSession = null;
+          }
+        });
+
+        ws.on('error', (error) => {
+          console.error('WebSocket error on /ws/gemini:', error);
+          if (geminiSession) {
+            // geminiSession.close(); // Conceptual
+            console.log('[MOCK Gemini] Closing Gemini session due to WebSocket error.');
+            geminiSession = null;
+          }
+        });
+
+      } else {
+        console.log(`WebSocket connection attempt to unknown path: ${req.url}`);
+        ws.terminate();
+      }
+    });
+    console.log(`WebSocket server initialized and attached to HTTP server.`);
+
   });
 } else {
   console.log("Running in test mode. Server not started automatically.");
