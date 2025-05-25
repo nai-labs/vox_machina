@@ -1,45 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import logo from "/assets/vox-machina-logo.png";
 import EventLog from "./EventLog";
 import SessionControls from "./SessionControls";
 import WaveformVisualizer from "./WaveformVisualizer";
 import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
-import { Download, Cpu, Terminal, Zap, AlertTriangle, Activity, User, Save } from "react-feather";
-import { getCharacterById } from "../utils/characterData";
+import { Download, Cpu, Terminal, Zap, Activity, User, Save } from "react-feather";
+import { useAudioRecording } from "../hooks/useAudioRecording";
+import { useWebRTCSession } from "../hooks/useWebRTCSession";
+import { useAudioExport } from "../hooks/useAudioExport";
 
 export default function App() {
-  const [isSessionActive, setIsSessionActive] = useState(false);
   const [events, setEvents] = useState([]);
-  const [dataChannel, setDataChannel] = useState(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportStatus, setExportStatus] = useState(null);
-  const [lastAudioResponse, setLastAudioResponse] = useState(null);
-  const [lastMessageAudio, setLastMessageAudio] = useState(null);
-  // Removed isAISpeaking state
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
-  const [isRecordingCurrentResponse, setIsRecordingCurrentResponse] = useState(false); // Added state
-  const [isMicMuted, setIsMicMuted] = useState(false);
-  const peerConnection = useRef(null);
-  const audioElement = useRef(null);
-  const micTrackRef = useRef(null);
-  // Removed isAISpeakingRef
-  const isSessionInitializedRef = useRef(false);
   
-  // Store all AI audio responses for the session
-  const audioResponsesHistoryRef = useRef([]);
-  
-  // Toggle microphone mute state
-  function toggleMicMute() {
-    if (micTrackRef.current) {
-      const newMuteState = !isMicMuted;
-      micTrackRef.current.enabled = !newMuteState;
-      setIsMicMuted(newMuteState);
-      console.log(`Microphone ${newMuteState ? 'muted' : 'unmuted'}`);
-    }
-  }
+  // Track processed events to prevent duplicates
+  const processedEventsRef = useRef(new Set());
+
+  // Custom hooks
+  const audioRecording = useAudioRecording();
+  const webrtcSession = useWebRTCSession();
+  const audioExport = useAudioExport();
 
   function handleSelectCharacter(character) {
     setSelectedCharacter(character);
@@ -51,449 +34,90 @@ export default function App() {
   }
   
   async function startSession() {
-    if (!selectedCharacter) {
-      console.error("No character selected");
-      return;
-    }
+    // Clear processed events when starting a new session
+    processedEventsRef.current.clear();
     
-    console.log("Starting session with character:", selectedCharacter);
-    console.log("Temperature:", selectedCharacter.temperature);
-    console.log("Voice:", selectedCharacter.voice);
-    
-    // Get an ephemeral key from the Fastify server with the selected character and parameters
-    const tokenUrl = `/token?character=${selectedCharacter.id}&temperature=${selectedCharacter.temperature}${selectedCharacter.voice ? `&voice=${selectedCharacter.voice}` : ''}`;
-    console.log("Token URL:", tokenUrl);
-    
-    const tokenResponse = await fetch(tokenUrl);
-    const data = await tokenResponse.json();
-    const EPHEMERAL_KEY = data.client_secret.value;
-
-    // Create a peer connection
-    const pc = new RTCPeerConnection();
-
-    // Set up to play remote audio from the model
-    audioElement.current = document.createElement("audio");
-    audioElement.current.autoplay = true;
-    
-    pc.ontrack = (e) => {
-      console.log("Received track from model");
-      const stream = e.streams[0];
-      audioElement.current.srcObject = stream;
-      
-      // Set up a simple MediaRecorder directly on the stream
-      try {
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        // Initialize or clear audio chunks
-        audioChunksRef.current = [];
-        // Clear audio responses history
-        audioResponsesHistoryRef.current = [];
-        
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            // Always add to full conversation audio
-            audioChunksRef.current.push(event.data);
-            
-            // Only add to current message audio if recording the current response
-            if (isRecordingCurrentResponse) { // Changed condition
-              currentMessageChunksRef.current.push(event.data);
-              console.log(`[DEBUG] Added chunk (${event.data.size} bytes) to currentMessageChunksRef. Total chunks: ${currentMessageChunksRef.current.length}`); // DEBUG
-            } else {
-              // console.log("Skipped adding chunk to current message audio (not recording response)"); // Reduced logging noise
-            }
-            
-            // console.log("Audio data received", event.data.size, "total chunks:", audioChunksRef.current.length); // Reduced logging noise
-            
-            // Create and update the full audio response
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            setLastAudioResponse(audioBlob);
-            // console.log("Updated lastAudioResponse with new data", audioBlob.size); // Reduced logging noise
-            
-            // Only update the current message audio if we have chunks and AI is speaking
-            // This check seems redundant now as setLastMessageAudio is handled on response.done
-            // if (currentMessageChunksRef.current.length > 0) {
-            //   const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
-            //   setLastMessageAudio(messageBlob);
-            //   console.log("Updated lastMessageAudio with new data", messageBlob.size);
-            // }
-          }
-        };
-        
-        mediaRecorder.onstop = () => {
-          if (audioChunksRef.current.length > 0) {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            setLastAudioResponse(audioBlob);
-            console.log("Media recorder stopped, saved blob", audioBlob.size);
-          }
-        };
-        
-        // Start recording and request data every 5 seconds
-        mediaRecorder.start(5000);
-        console.log("Media recorder started");
-        
-        // Removed onplay/onpause listeners for speech activity
-        
-      } catch (err) {
-        console.error("Failed to set up media recorder:", err);
-      }
-    };
-
-    // Add local audio track for microphone input in the browser
-    const ms = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+    await webrtcSession.startSession(selectedCharacter, (stream) => {
+      audioRecording.setupMediaRecorder(stream);
     });
-    const micTrack = ms.getTracks()[0];
-    micTrackRef.current = micTrack; // Store reference for mute control
-    pc.addTrack(micTrack);
-
-    // Set up data channel for sending and receiving events
-    const dc = pc.createDataChannel("oai-events");
-    setDataChannel(dc);
-
-    // Reset session state
-    isSessionInitializedRef.current = false;
-    
-    // Start the session using the Session Description Protocol (SDP)
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    const baseUrl = "https://api.openai.com/v1/realtime";
-    const model = "gpt-4o-realtime-preview-2024-12-17";
-    const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-      method: "POST",
-      body: offer.sdp,
-      headers: {
-        Authorization: `Bearer ${EPHEMERAL_KEY}`,
-        "Content-Type": "application/sdp",
-      },
-    });
-
-    const answer = {
-      type: "answer",
-      sdp: await sdpResponse.text(),
-    };
-    await pc.setRemoteDescription(answer);
-
-    peerConnection.current = pc;
   }
 
-  // MediaRecorder reference
-  const mediaRecorderRef = useRef(null);
-  // Audio chunks storage
-  const audioChunksRef = useRef([]);
-  // Current message chunks storage
-  const currentMessageChunksRef = useRef([]);
-
-  // Stop current session, clean up peer connection and data channel
   function stopSession() {
-    if (dataChannel) {
-      dataChannel.close();
-    }
-
-    // Stop any active media recorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-
-    peerConnection.current.getSenders().forEach((sender) => {
-      if (sender.track) {
-        sender.track.stop();
-      }
+    webrtcSession.stopSession(() => {
+      audioRecording.stopRecording();
+      audioRecording.clearAudioHistory();
     });
-
-    if (peerConnection.current) {
-      peerConnection.current.close();
-    }
-
-    setIsSessionActive(false);
-    setDataChannel(null);
-    peerConnection.current = null;
-    
-    // Clear audio responses history when session ends
-    audioResponsesHistoryRef.current = [];
   }
 
-  // Send a message to the model
   function sendClientEvent(message) {
-    if (dataChannel) {
-      message.event_id = message.event_id || crypto.randomUUID();
-      dataChannel.send(JSON.stringify(message));
-      setEvents((prev) => [message, ...prev]);
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        message,
-      );
-    }
+    webrtcSession.sendClientEvent(message, setEvents);
   }
 
-  // Send a text message to the model
   function sendTextMessage(message) {
-    const event = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
-      },
-    };
-
-    sendClientEvent(event);
-    sendClientEvent({ type: "response.create" });
-  }
-
-  // Function to export the last AI audio response
-  async function exportLastAudio() {
-    console.log("[DEBUG] exportLastAudio called"); // DEBUG
-    console.log("[DEBUG] Current lastMessageAudio state:", lastMessageAudio); // DEBUG
-    
-    if (!lastMessageAudio || lastMessageAudio.size === 0) {
-      console.log("[DEBUG] No last message audio available or size is 0"); // DEBUG
-      setExportStatus("No audio to export");
-      setTimeout(() => setExportStatus(null), 3000); // Clear status after timeout
-      return;
-    }
-
-    try {
-      setIsExporting(true);
-      setExportStatus("Exporting last response...");
-
-      // Request final chunks to ensure we have the latest data - This might be redundant if response.done already did it.
-      // if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      //   console.log("Requesting final audio data in exportLastAudio");
-      //   mediaRecorderRef.current.requestData();
-      // }
-
-      // Short delay to ensure we have the latest data - May not be needed if blob is already finalized
-      // await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Convert audio blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(lastMessageAudio); // Use the state variable directly
-      
-      reader.onloadend = async () => {
-        try {
-          let base64data = reader.result;
-          console.log("[DEBUG] FileReader success. Base64 data length:", base64data?.length); // DEBUG
-          
-          if (!base64data) {
-            throw new Error("FileReader resulted in null or undefined data.");
-          }
-
-          console.log("[DEBUG] Sending last message audio data to /save-audio"); // DEBUG
-          
-          // Send audio to server
-          const response = await fetch('/save-audio', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-              audioData: base64data,
-              isRecentMessage: true, // Keep this flag? Server might not use it.
-              exportType: 'last'
-            }),
-          });
-          
-          console.log("[DEBUG] Server response status:", response.status); // DEBUG
-          
-          const result = await response.json();
-          console.log("[DEBUG] Server response body:", result); // DEBUG
-          
-          if (result.success) {
-            console.log(`Last audio response saved as ${result.mp3.filename}`);
-            setExportStatus(`Saved as ${result.mp3.filename}`);
-            setTimeout(() => setExportStatus(null), 3000);
-          } else {
-            console.error("Server returned error:", result.error);
-            setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`); // Show error
-            setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
-          }
-        } catch (error) {
-          console.error("[DEBUG] Error processing audio or fetch:", error); // DEBUG
-          setExportStatus(`Export failed: ${error.message}`);
-          setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
-        } finally {
-          setIsExporting(false);
-        }
-      };
-      
-      reader.onerror = (error) => {
-        console.error("[DEBUG] Error reading audio data with FileReader:", error); // DEBUG
-        setIsExporting(false);
-        setExportStatus("Export failed: FileReader error");
-        setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
-      };
-    } catch (error) {
-      console.error("[DEBUG] Error in exportLastAudio try block:", error); // DEBUG
-      setIsExporting(false);
-      setExportStatus(`Export failed: ${error.message}`);
-      setTimeout(() => setExportStatus(null), 5000); // Longer timeout for errors
-    }
-  }
-
-  // Function to export all AI audio responses
-  async function exportFullAudio() {
-    console.log("Exporting full AI audio conversation");
-    
-    if (!lastAudioResponse || lastAudioResponse.size === 0) {
-      console.log("No audio available to export");
-      setExportStatus("No audio to export");
-      return;
-    }
-
-    try {
-      setIsExporting(true);
-      setExportStatus("Exporting full conversation...");
-
-      // Request final chunks to ensure we have the latest data
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        console.log("Requesting final audio data");
-        mediaRecorderRef.current.requestData();
-      }
-
-      // Short delay to ensure we have the latest data
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Convert audio blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(lastAudioResponse);
-      
-      reader.onloadend = async () => {
-        try {
-          let base64data = reader.result;
-          
-          // Check if the data is too large
-          // if (base64data.length > 10000000) { // ~10MB limit
-          //   console.log("Audio data is too large, trimming to last 10MB");
-          //   base64data = base64data.substring(base64data.length - 10000000);
-          // }
-          
-          console.log("Sending full audio data, length:", base64data.length);
-          
-          // Send audio to server
-          const response = await fetch('/save-audio', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-              audioData: base64data,
-              isRecentMessage: false,
-              exportType: 'full'
-            }),
-          });
-          
-          console.log("Server response status:", response.status);
-          
-          const result = await response.json();
-          
-          if (result.success) {
-            console.log(`Full audio conversation saved as ${result.mp3.filename}`);
-            setExportStatus(`Saved as ${result.mp3.filename}`);
-            setTimeout(() => setExportStatus(null), 3000);
-          } else {
-            console.error("Server returned error:", result.error);
-            setExportStatus("Export failed");
-            setTimeout(() => setExportStatus(null), 3000);
-          }
-        } catch (error) {
-          console.error("Error processing audio:", error);
-          setExportStatus("Export failed");
-          setTimeout(() => setExportStatus(null), 3000);
-        } finally {
-          setIsExporting(false);
-        }
-      };
-      
-      reader.onerror = () => {
-        console.error("Error reading audio data");
-        setIsExporting(false);
-        setExportStatus("Export failed");
-        setTimeout(() => setExportStatus(null), 3000);
-      };
-    } catch (error) {
-      console.error("Error exporting audio:", error);
-      setIsExporting(false);
-      setExportStatus("Export failed");
-      setTimeout(() => setExportStatus(null), 3000);
-    }
+    webrtcSession.sendTextMessage(message, setEvents);
   }
 
   // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
-    if (dataChannel) {
-      // Append new server events to the list
-      dataChannel.addEventListener("message", (e) => {
+    if (webrtcSession.dataChannel) {
+      const handleMessage = (e) => {
         const eventData = JSON.parse(e.data);
-        setEvents((prev) => [eventData, ...prev]);
-        
-        // When a new response starts, reset the current message audio collection and start recording it
-        if (eventData.type === "response.create") {
-          console.log("New response started (response.create), resetting current message audio and starting recording");
-          currentMessageChunksRef.current = [];
-          setIsRecordingCurrentResponse(true); // Start recording current response
-          console.log("Current message chunks length after reset:", currentMessageChunksRef.current.length);
-        }
-        
-        // When the model stops speaking (response is done), finalize the current message audio
-        if (eventData.type === "response.done") {
-          console.log("Response completed (response.done), finalizing current message audio");
-          setIsRecordingCurrentResponse(false); // Stop recording current response
-          
-          // Always request the latest audio data
-          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            console.log("Requesting final audio data for current message before finalizing blob (response.done)");
-            mediaRecorderRef.current.requestData();
-          }
-          
-          // Add a short delay to allow final data chunk to arrive (if any are pending from natural recorder interval)
-          setTimeout(() => {
-            console.log("[DEBUG] Finalizing blob after delay. Current message chunks length:", currentMessageChunksRef.current.length); // DEBUG
-            // Create a blob from current message chunks if available
-            if (currentMessageChunksRef.current.length > 0) {
-              const messageBlob = new Blob(currentMessageChunksRef.current, { type: 'audio/webm' });
-              console.log("[DEBUG] Created messageBlob, size:", messageBlob.size); // DEBUG
-              setLastMessageAudio(messageBlob);
-              console.log("[DEBUG] Called setLastMessageAudio with blob:", messageBlob); // DEBUG
-              
-              // Add to audio responses history
-              audioResponsesHistoryRef.current.push(messageBlob);
-              console.log("Added response to history, total responses:", audioResponsesHistoryRef.current.length);
-            } else {
-              console.log("[DEBUG] No chunks to finalize for lastMessageAudio"); // DEBUG
-            }
-          }, 100); // 100ms delay
-        }
-        
-        // Look for audio output events (optional logging)
-        if (eventData.type === "audio_output.delta" || eventData.type === "audio_output") {
-          // console.log("Audio event received:", eventData.type); // Reduced logging noise
-        }
-      });
+        // Create a unique identifier for the event
+        const eventId = eventData.event_id || `${eventData.type}-${eventData.timestamp || Date.now()}`;
 
-      // Set session active when the data channel is opened
-      dataChannel.addEventListener("open", () => {
+        // Check if we've already processed this event (for UI and for recording triggers)
+        if (processedEventsRef.current.has(eventId)) {
+          console.log(`[DEBUG] Duplicate event detected and skipped for all processing: ${eventId}`);
+          return; // Return early for duplicates, preventing all further processing
+        }
+        
+        // Add to processed events set (for UI and to prevent re-triggering recording logic)
+        processedEventsRef.current.add(eventId);
+        
+        // Add the event to UI state
+        setEvents((prev) => [eventData, ...prev]);
+        console.log(`[DEBUG] Added new UI event: ${eventData.type} (${eventId})`);
+        
+        // Handle specific event types for recording, only for non-duplicates
+        if (eventData.type === "response.audio_transcript.delta" && !audioRecording.isRecordingCurrentResponse) {
+          console.log("[DEBUG] First audio transcript delta - starting audio recording");
+          audioRecording.startRecordingResponse();
+        }
+        
+        if (eventData.type === "response.done") {
+          console.log("[DEBUG] Response done event - stopping audio recording");
+          audioRecording.stopRecordingResponse();
+        }
+      };
+
+      webrtcSession.dataChannel.addEventListener("message", handleMessage);
+
+      const handleOpen = () => {
         console.log("Data channel opened");
-        setIsSessionActive(true);
-        setEvents([]);
+        webrtcSession.setIsSessionActive(true);
+        setEvents([]); // Clear UI events
+        processedEventsRef.current.clear(); // Clear processed event IDs on new session
         
-        // Initialize current message chunks
-        currentMessageChunksRef.current = [];
-        
-        // Mark session as initialized after a short delay to ensure everything is ready
         setTimeout(() => {
           console.log("Session fully initialized");
-          isSessionInitializedRef.current = true;
+          webrtcSession.isSessionInitializedRef.current = true;
         }, 2000);
-      });
+      };
+      webrtcSession.dataChannel.addEventListener("open", handleOpen);
+
+      // Cleanup function
+      return () => {
+        if (webrtcSession.dataChannel) {
+          webrtcSession.dataChannel.removeEventListener("message", handleMessage);
+          webrtcSession.dataChannel.removeEventListener("open", handleOpen);
+        }
+      };
     }
-  }, [dataChannel]);
+    // Ensure all dependencies that are used inside the effect and can change are listed.
+    // audioRecording methods (startRecordingResponse, stopRecordingResponse) are stable due to useCallback.
+    // webrtcSession methods (setIsSessionActive) and refs (isSessionInitializedRef) should be stable or handled carefully if they cause re-runs.
+    // For simplicity, assuming audioRecording and webrtcSession objects themselves are stable references from their hooks.
+  }, [webrtcSession.dataChannel, audioRecording, webrtcSession]);
 
   // Handle splash screen completion
   const handleSplashComplete = () => {
@@ -551,6 +175,7 @@ export default function App() {
               </div>
             </div>
           </nav>
+          
           {/* Film grain effect - more visible */}
           <div className="fixed inset-0 z-0 pointer-events-none opacity-40 mix-blend-overlay">
             <div className="absolute inset-0 bg-noise animate-noise"></div>
@@ -561,11 +186,9 @@ export default function App() {
             <div className="absolute inset-0 bg-scan-lines"></div>
           </div>
           
-          {/* We've replaced this with the animated floating particles overlay above */}
-          
           <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center">
             <section className="absolute top-0 left-0 right-0 bottom-0 flex flex-col max-w-7xl mx-auto px-4 w-full">
-              {/* DATA STREAM - Now smaller */}
+              {/* DATA STREAM */}
               <div className="terminal-panel w-full h-32 mb-4 overflow-hidden">
                 <div className="terminal-header flex items-center justify-between">
                   <span className="flex items-center gap-2">
@@ -586,7 +209,7 @@ export default function App() {
               {/* AI Audio Waveform Visualizer or Character Selection */}
               <div className="terminal-panel w-full flex-grow mb-4">
                 <div className="terminal-header flex items-center justify-between">
-                  {!isSessionActive && isCharacterSelectionMode ? (
+                  {!webrtcSession.isSessionActive && isCharacterSelectionMode ? (
                     <>
                       <span className="flex items-center gap-2">
                         <User size={16} className="text-neon-primary" />
@@ -600,32 +223,30 @@ export default function App() {
                         <Activity size={16} className="text-neon-primary" />
                         VOX MACHINA AUDIO VISUALIZATION
                       </span>
-                      {/* Changed condition to use isRecordingCurrentResponse */}
-                      <div className={`text-xs ${isRecordingCurrentResponse ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
-                        {isRecordingCurrentResponse ? "TRANSMITTING" : "IDLE"}
+                      <div className={`text-xs ${audioRecording.isRecordingCurrentResponse ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
+                        {audioRecording.isRecordingCurrentResponse ? "TRANSMITTING" : "IDLE"}
                       </div>
                     </>
                   )}
                 </div>
                 <div className="terminal-content h-full relative">
-                  {!isSessionActive && isCharacterSelectionMode ? (
+                  {!webrtcSession.isSessionActive && isCharacterSelectionMode ? (
                     <CharacterSelect onSelectCharacter={handleSelectCharacter} />
-                  ) : audioElement.current && audioElement.current.srcObject ? (
+                  ) : webrtcSession.audioElement.current && webrtcSession.audioElement.current.srcObject ? (
                     <>
                       <WaveformVisualizer 
-                        audioStream={audioElement.current.srcObject} 
-                        // Removed isAISpeaking prop
-                        isMicMuted={isMicMuted}
-                        toggleMicMute={toggleMicMute}
+                        audioStream={webrtcSession.audioElement.current.srcObject} 
+                        isMicMuted={webrtcSession.isMicMuted}
+                        toggleMicMute={webrtcSession.toggleMicMute}
                       />
                       
                       {/* Export buttons */}
                       <div className="absolute top-4 right-4 flex gap-2">
                         <button
-                          onClick={exportLastAudio}
-                          disabled={isExporting || !lastMessageAudio}
+                          onClick={() => audioExport.exportLastAudio(audioRecording.lastMessageAudio, selectedCharacter)}
+                          disabled={audioExport.isExporting || !audioRecording.lastMessageAudio}
                           className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            isExporting || !lastMessageAudio ? 'opacity-50 cursor-not-allowed' : '' // Ensure disabled state reflects !lastMessageAudio
+                            audioExport.isExporting || !audioRecording.lastMessageAudio ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                           title="Export last AI response"
                         >
@@ -634,10 +255,10 @@ export default function App() {
                         </button>
                         
                         <button
-                          onClick={exportFullAudio}
-                          disabled={isExporting || !lastAudioResponse}
+                          onClick={() => audioExport.exportFullAudio(audioRecording.lastAudioResponse, selectedCharacter)}
+                          disabled={audioExport.isExporting || !audioRecording.lastAudioResponse}
                           className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            isExporting ? 'opacity-50 cursor-not-allowed' : ''
+                            audioExport.isExporting ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                           title="Export full conversation"
                         >
@@ -647,13 +268,13 @@ export default function App() {
                       </div>
                       
                       {/* Export status message */}
-                      {exportStatus && (
+                      {audioExport.exportStatus && (
                         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-cyber-dark border border-neon-primary px-4 py-2 rounded-sm text-neon-primary text-sm">
-                          {exportStatus}
+                          {audioExport.exportStatus}
                         </div>
                       )}
                     </>
-                  ) : !isSessionActive && selectedCharacter ? (
+                  ) : !webrtcSession.isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">
                       <div className="terminal-panel p-6 border-neon-primary max-w-md">
                         <div className="terminal-header flex items-center justify-between mb-4">
@@ -708,7 +329,7 @@ export default function App() {
                     <Terminal size={16} />
                     COMMAND INTERFACE
                   </span>
-                  <div className="text-xs opacity-70">[STATUS: {isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
+                  <div className="text-xs opacity-70">[STATUS: {webrtcSession.isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
                 </div>
                 <div className="terminal-content h-full">
                   <SessionControls
@@ -717,7 +338,7 @@ export default function App() {
                     sendClientEvent={sendClientEvent}
                     sendTextMessage={sendTextMessage}
                     events={events}
-                    isSessionActive={isSessionActive}
+                    isSessionActive={webrtcSession.isSessionActive}
                   />
                 </div>
               </div>

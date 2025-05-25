@@ -15,6 +15,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const apiKey = process.env.OPENAI_API_KEY;
 
+const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview-2024-12-17";
+
 // Configure Vite middleware for React client
 const vite = await createViteServer({
   server: { middlewareMode: true },
@@ -42,7 +44,7 @@ app.get("/token", async (req, res) => {
     console.log(`Temperature: ${temperature}`);
     console.log(`Voice override: ${voice || 'none (using character default)'}`);
     
-    // Get the character prompt from chars.md
+    // Get the character prompt from characters.json
     const character = getCharacterPromptById(characterId);
     
     if (!character) {
@@ -50,8 +52,16 @@ app.get("/token", async (req, res) => {
       return res.status(404).json({ error: `Character '${characterId}' not found` });
     }
     
-    console.log(`Using character: ${character.title}`);
+    console.log(`Using character: ${character.name}`);
     console.log(`Character prompt length: ${character.prompt.length} characters`);
+    
+    let apiModel = process.env.OPENAI_API_MODEL;
+    if (!apiModel) {
+      apiModel = DEFAULT_OPENAI_MODEL;
+      console.warn(`OPENAI_API_MODEL environment variable not set. Using default model: ${DEFAULT_OPENAI_MODEL}`);
+    } else {
+      console.log(`Using OpenAI model from environment variable: ${apiModel}`);
+    }
     
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
@@ -62,7 +72,7 @@ app.get("/token", async (req, res) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-realtime-preview-2024-12-17",
+          model: apiModel,
           voice: voice || character.voice || "sage",
           temperature: temperature,
           max_response_output_tokens: 4096,
@@ -72,7 +82,8 @@ app.get("/token", async (req, res) => {
     );
 
     const data = await response.json();
-    res.json(data);
+    // Include the apiModel in the response
+    res.json({ ...data, apiModel });
   } catch (error) {
     console.error("Token generation error:", error);
     res.status(500).json({ error: "Failed to generate token" });
@@ -83,7 +94,7 @@ app.get("/token", async (req, res) => {
 app.post("/save-audio", async (req, res) => {
   try {
     console.log("Received save-audio request");
-    const { audioData, isRecentMessage, exportType } = req.body;
+    const { audioData, isRecentMessage, exportType, character } = req.body;
     
     // Create outputs directory if it doesn't exist
     const outputsDir = path.join(process.cwd(), 'outputs');
@@ -92,8 +103,11 @@ app.post("/save-audio", async (req, res) => {
       console.log("Created outputs directory:", outputsDir);
     }
     
-    // Create timestamp for filenames
-    const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
+    // Create timestamp for filenames (more readable format)
+    const now = new Date();
+    const date = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const time = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+    const timestamp = `${date}_${time}`;
     
     // Handle the audio export
     if (!audioData) {
@@ -103,6 +117,7 @@ app.post("/save-audio", async (req, res) => {
     
     console.log("Audio data received, size:", audioData.length);
     console.log("Export type:", exportType || "standard");
+    console.log("Character:", character ? character.name : "unknown");
     console.log("Is recent message only:", isRecentMessage ? "yes" : "no");
     
     // Ensure the data is properly formatted
@@ -115,17 +130,26 @@ app.post("/save-audio", async (req, res) => {
     const buffer = Buffer.from(base64Data, 'base64');
     console.log("Buffer created, size:", buffer.length);
     
-    // Create filename with timestamp and type indicator
-    let filePrefix;
-    if (exportType === 'last') {
-      filePrefix = 'last-response-';
-    } else if (exportType === 'full') {
-      filePrefix = 'full-conversation-';
-    } else {
-      filePrefix = isRecentMessage ? 'recent-message-' : 'ai-audio-';
+    // Create descriptive filename
+    let characterName = 'unknown-character';
+    if (character && character.name) {
+      // Clean character name for filename safety
+      characterName = character.name.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
     }
     
-    const filename = `${filePrefix}${timestamp}.webm`;
+    let exportTypeLabel;
+    if (exportType === 'last') {
+      exportTypeLabel = 'last-response';
+    } else if (exportType === 'full') {
+      exportTypeLabel = 'full-conversation';
+    } else {
+      exportTypeLabel = isRecentMessage ? 'recent-message' : 'ai-audio';
+    }
+    
+    const filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.webm`;
     const filePath = path.join(outputsDir, filename);
     
     // Write webm file to disk
@@ -133,7 +157,7 @@ app.post("/save-audio", async (req, res) => {
     console.log("Webm file saved to:", filePath);
     
     // Create mp3 filename
-    const mp3Filename = `${filePrefix}${timestamp}.mp3`;
+    const mp3Filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.mp3`;
     const mp3FilePath = path.join(outputsDir, mp3Filename);
     
     // Convert webm to mp3 using ffmpeg with silence removal
@@ -194,55 +218,75 @@ app.use("*", async (req, res, next) => {
   }
 });
 
-const server = app.listen(port, () => {
-  console.log(`Express server running on *:${port}`);
-  
-  // Create a tunnel to make the server publicly accessible
-  (async () => {
+// Create tunnel to make the server publicly accessible
+async function createTunnel(port) {
+  try {
+    // Generate a unique subdomain based on a timestamp
+    const subdomain = `app-${Date.now().toString().slice(-6)}`;
+    
+    console.log(`Attempting to create tunnel with subdomain: ${subdomain}`);
+    
+    const tunnel = await localtunnel({ 
+      port,
+      subdomain: subdomain,
+      allow_ip: ['0.0.0.0/0']
+    });
+    
+    console.log(`🌐 Public URL: ${tunnel.url}`);
+    console.log(`Subdomain: ${subdomain}`);
+    console.log(`Share this URL with others to access your application`);
+    
+    tunnel.on('close', () => {
+      console.log('Tunnel closed');
+    });
+    
+    tunnel.on('error', (err) => {
+      console.error('Tunnel error (after connection):', err);
+    });
+
+    return tunnel;
+  } catch (error) {
+    console.error(`Failed to create tunnel with subdomain: ${error.message}`);
+    
+    console.log('Trying alternative tunnel configuration (without custom subdomain)...');
     try {
-      // Generate a unique subdomain based on a timestamp
-      const subdomain = `app-${Date.now().toString().slice(-6)}`;
-      
-      console.log(`Attempting to create tunnel with subdomain: ${subdomain}`);
-      
-      const tunnel = await localtunnel({ 
-        port,
-        subdomain: subdomain,
-        allow_ip: ['0.0.0.0/0']  // Try to allow all IPs
-      });
-      
-      console.log(`🌐 Public URL: ${tunnel.url}`);
-      console.log(`Subdomain: ${subdomain}`);
+      const fallbackTunnel = await localtunnel({ port });
+      console.log(`🌐 Alternative Public URL: ${fallbackTunnel.url}`);
       console.log(`Share this URL with others to access your application`);
       
-      tunnel.on('close', () => {
-        console.log('Tunnel closed');
+      fallbackTunnel.on('close', () => {
+        console.log('Fallback tunnel closed');
       });
       
-      // Handle errors
-      tunnel.on('error', (err) => {
-        console.error('Tunnel error:', err);
+      fallbackTunnel.on('error', (err) => {
+        console.error('Fallback tunnel error (after connection):', err);
       });
-    } catch (error) {
-      console.error('Failed to create tunnel:', error);
-      console.error('Error details:', error.message);
-      
-      // If the first attempt fails, try again without custom options
-      try {
-        console.log('Trying alternative tunnel configuration...');
-        const tunnel = await localtunnel({ port });
-        console.log(`🌐 Alternative Public URL: ${tunnel.url}`);
-        
-        tunnel.on('close', () => {
-          console.log('Tunnel closed');
-        });
-        
-        tunnel.on('error', (err) => {
-          console.error('Tunnel error:', err);
-        });
-      } catch (fallbackError) {
-        console.error('Failed to create alternative tunnel:', fallbackError.message);
-      }
+
+      return fallbackTunnel;
+    } catch (fallbackError) {
+      console.error(`Failed to create alternative tunnel: ${fallbackError.message}`);
+      console.log("\n===========================================================================");
+      console.log("🔴 Failed to create a public URL using localtunnel.");
+      console.log(`🟢 Application is running locally. Access it at http://localhost:${port}`);
+      console.log("===========================================================================\n");
+      return null;
     }
-  })();
-});
+  }
+}
+
+// Start server
+let serverInstance = null;
+
+if (process.env.NODE_ENV !== 'test') {
+  serverInstance = app.listen(port, () => {
+    console.log(`Express server running on http://localhost:${port}`);
+    
+    // Create tunnel in production mode
+    createTunnel(port);
+  });
+} else {
+  console.log("Running in test mode. Server not started automatically.");
+}
+
+// Export app for testing purposes
+export { app, serverInstance, vite };
