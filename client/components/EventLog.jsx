@@ -4,48 +4,92 @@ import { useState } from "react";
 function Event({ event, timestamp }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const isClient = event.event_id && !event.event_id.startsWith("event_");
-  
+  // Determine if the event is from the client (user) or system/model
+  // OpenAI user events often have event.item.role === 'user' or are of type "conversation.item.create"
+  // Gemini user events (local echo) have event.role === 'user'
+  const isClientEvent = (event.item?.role === 'user' || event.role === 'user' || (event.event_id && !event.event_id.startsWith("event_")));
+  const isSystemStatus = event.type === 'status' || event.status; // For Gemini status messages
+  const isErrorEvent = event.type === 'error' || event.error;
+  const isTranscriptionEvent = event.type === 'gemini_transcription';
+
   // Get a simple content display from the event
   const getDisplayContent = () => {
-    if (event.type === "conversation.item.create" && event.item?.content) {
+    if (event.type === "conversation.item.create" && event.item?.content) { // OpenAI user message
       return event.item.content.map(c => c.text).join(" ");
     }
-    
-    if (event.type === "text_response.delta" && event.delta?.content) {
+    if (event.type === "text_message" && event.role === 'user' && event.content) { // Gemini local echo user message
+        return event.content;
+    }
+    if (event.type === "text_response.delta" && event.delta?.content) { // OpenAI delta
       return event.delta.content.map(c => c.text).join(" ");
     }
-    
-    return null;
+    if (isSystemStatus) {
+      return event.content || event.status || event.reason || "Status message";
+    }
+    if (isErrorEvent) {
+        return event.content || event.error || event.reason || "Error message";
+    }
+    if (isTranscriptionEvent && event.text) {
+        return `Transcription: ${event.text}`;
+    }
+    if (event.type === 'gemini_text_chunk' && event.text) { // Gemini text chunk from server
+        return event.text;
+    }
+    // Fallback for other OpenAI system messages that might have text
+    if (event.text) return event.text; 
+    if (event.message?.content?.parts?.[0]?.text) return event.message.content.parts[0].text;
+
+
+    return null; // No simple display content
   };
   
   const displayContent = getDisplayContent();
+  const eventTypeDisplay = event.type || (isSystemStatus ? 'STATUS' : isErrorEvent ? 'ERROR' : 'UNKNOWN_EVENT');
+
+  // Styling based on event source
+  let borderColorClass = "border-l-neon-secondary"; // Default to system/model
+  let textColorClass = "text-neon-secondary";
+  let sourcePrefix = "SYSTEM";
+  let SourceIcon = Server;
+
+  if (isClientEvent) {
+    borderColorClass = "border-l-neon-primary";
+    textColorClass = "text-neon-primary";
+    sourcePrefix = "USER";
+    SourceIcon = Terminal;
+  } else if (isErrorEvent) {
+    borderColorClass = "border-l-red-500";
+    textColorClass = "text-red-400";
+    sourcePrefix = "ERROR";
+  } else if (isSystemStatus) {
+    borderColorClass = "border-l-yellow-500";
+    textColorClass = "text-yellow-400";
+    sourcePrefix = "STATUS";
+  } else if (isTranscriptionEvent) {
+    borderColorClass = "border-l-cyan-500";
+    textColorClass = "text-cyan-400";
+    sourcePrefix = "TRANSCRIPT";
+  }
+
 
   return (
-    <div className={`flex flex-col gap-1 p-2 rounded border-l-4 mb-3 
-                   ${isClient 
-                     ? "border-l-neon-primary bg-cyber-dark/70" 
-                     : "border-l-neon-secondary bg-cyber-dark/70"}`}>
+    <div className={`flex flex-col gap-1 p-2 rounded border-l-4 mb-3 bg-cyber-dark/70 ${borderColorClass}`}>
       <div
         className="flex items-center gap-2 cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center">
-          {isClient ? (
+          {isClientEvent ? (
             <CornerUpRight size={14} className="text-neon-primary mr-2" />
           ) : (
             <CornerDownRight size={14} className="text-neon-secondary mr-2" />
           )}
           
-          {isClient ? (
-            <Terminal size={12} className="text-neon-primary mr-1" />
-          ) : (
-            <Server size={12} className="text-neon-secondary mr-1" />
-          )}
+          <SourceIcon size={12} className={`${textColorClass} mr-1`} />
         </div>
         
-        <div className={`text-xs font-mono ${isClient ? "text-neon-primary" : "text-neon-secondary"}`}>
-          {isClient ? "USER" : "SYSTEM"} :: {event.type}
+        <div className={`text-xs font-mono ${textColorClass}`}>
+          {sourcePrefix} :: {eventTypeDisplay}
         </div>
         
         <div className="text-xs opacity-60 ml-auto">{timestamp}</div>
@@ -104,7 +148,8 @@ export default function EventLog({ events }) {
   };
 
   events.forEach((event, index) => {
-    if (event.type.endsWith("delta")) {
+    // Check if event and event.type are valid before calling .endsWith()
+    if (event && typeof event.type === 'string' && event.type.endsWith("delta")) {
       if (deltaEvents[event.type]) {
         // for now just log a single event per render pass
         return;

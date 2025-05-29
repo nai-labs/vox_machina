@@ -1,26 +1,78 @@
-import { useState } from "react";
+import { useState, useEffect } from "react"; // Added useEffect
 import { getAllCharacters } from "../utils/characterData";
-import { User, Zap, Heart, MessageCircle, PhoneCall, Volume2, Thermometer, Mic, Book, Terminal, Brain } from "react-feather"; // Added Brain
+import { PhoneCall, Zap, Thermometer, Volume2 } from "react-feather"; 
+// import Brain from "react-feather/dist/icons/brain"; // Temporarily removed Brain
+// User, Heart, MessageCircle, Mic, Book, Terminal are not used in the current snippet,
+// but if they were, they'd be imported similarly.
 
 export default function CharacterSelect({ onSelectCharacter, currentProvider }) { // Added currentProvider prop
   const [selectedCharacterId, setSelectedCharacterId] = useState("bill");
-  const [temperature, setTemperature] = useState(0.8);
+  const [temperature, setTemperature] = useState(0.8); // Initial default, will be adjusted by useEffect
   const [selectedVoice, setSelectedVoice] = useState(null);
-  const characters = getAllCharacters(); // This might need to filter/adapt based on provider
+  const characters = getAllCharacters();
+
+  // Define temperature configurations per provider
+  const tempConfigs = {
+    openai: { min: 0.1, max: 1.2, step: 0.05, default: 0.8 },
+    gemini: { min: 0.0, max: 2.0, step: 0.05, default: 1.0 } 
+  };
+
+  const currentTempConfig = tempConfigs[currentProvider] || tempConfigs.openai;
+
+  // Effect to adjust temperature if currentProvider changes, ensuring it's within new bounds.
+  useEffect(() => {
+    // This effect runs when currentProvider (and thus currentTempConfig) changes.
+    // It clamps the *current* temperature to the new provider's valid range.
+    setTemperature(prevTemp => Math.min(Math.max(prevTemp, currentTempConfig.min), currentTempConfig.max));
+  }, [currentProvider]); // Only re-run if currentProvider changes
 
   const handleSelect = (characterId) => {
     setSelectedCharacterId(characterId);
-    // Reset voice to character default when changing character
-    setSelectedVoice(null);
+    setSelectedVoice(null); // Reset voice to character default
+
+    // Set temperature based on the newly selected character and current provider
+    const charData = characters.find(c => c.id === characterId);
+    const providerConfig = tempConfigs[currentProvider] || tempConfigs.openai;
+    let targetTemp = providerConfig.default;
+
+    if (charData && charData.temperature !== undefined) {
+      targetTemp = charData.temperature;
+    }
+    
+    setTemperature(Math.min(Math.max(targetTemp, providerConfig.min), providerConfig.max));
   };
 
+  // Initialize temperature on first load for the default selected character & provider
+  useEffect(() => {
+    const initialCharData = characters.find(c => c.id === selectedCharacterId);
+    const initialProviderConfig = tempConfigs[currentProvider] || tempConfigs.openai;
+    let initialTargetTemp = initialProviderConfig.default;
+
+    if (initialCharData && initialCharData.temperature !== undefined) {
+      initialTargetTemp = initialCharData.temperature;
+    }
+    setTemperature(Math.min(Math.max(initialTargetTemp, initialProviderConfig.min), initialProviderConfig.max));
+  // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, []); // Run only once on mount to set initial temperature for default character/provider
+
   const handleConfirm = () => {
-    const selectedCharacter = characters.find(char => char.id === selectedCharacterId);
-    // Add temperature and voice to the character object
+    const selectedCharacterData = characters.find(char => char.id === selectedCharacterId);
+    let voiceToUse = selectedVoice;
+
+    if (!selectedVoice) { // "Default" was selected in dropdown
+      if (currentProvider === 'gemini') {
+        // For Gemini, if default is chosen, use character's geminiVoice if defined, else a hardcoded Gemini default.
+        // Since we decided not to add geminiVoice to characters.json, we'll use a general default.
+        voiceToUse = 'Kore'; // General default Gemini voice
+      } else { // OpenAI
+        voiceToUse = selectedCharacterData.voice || 'sage'; // Character's OpenAI default or general OpenAI default
+      }
+    }
+
     onSelectCharacter({
-      ...selectedCharacter,
+      ...selectedCharacterData,
       temperature,
-      voice: selectedVoice || selectedCharacter.voice
+      voice: voiceToUse // This will be a provider-appropriate voice
     });
   };
 
@@ -86,25 +138,25 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
           <div className="flex items-center justify-between mb-1">
             <label className="flex items-center gap-1 text-xs">
               <Thermometer size={14} className={getTemperatureColor(temperature)} />
-              <span>TEMPERATURE</span>
+              <span>TEMPERATURE ({currentProvider.toUpperCase()})</span>
             </label>
             <span className={`text-xs font-mono ${getTemperatureColor(temperature)}`}>{temperature.toFixed(2)}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-blue-400">0.1</span>
+            <span className="text-xs text-blue-400">{currentTempConfig.min.toFixed(1)}</span>
             <input
               type="range"
-              min="0.1"
-              max="1.2"
-              step="0.05"
+              min={currentTempConfig.min}
+              max={currentTempConfig.max}
+              step={currentTempConfig.step}
               value={temperature}
               onChange={(e) => setTemperature(parseFloat(e.target.value))}
               className="flex-1 h-2 bg-cyber-dark rounded-lg appearance-none cursor-pointer"
               style={{
-                background: `linear-gradient(to right, #3b82f6, #06b6d4, #facc15, #ef4444)`,
+                background: `linear-gradient(to right, #3b82f6, #06b6d4, #facc15, #ef4444)`, // Style might need adjustment if range changes drastically
               }}
             />
-            <span className="text-xs text-red-400">1.2</span>
+            <span className="text-xs text-red-400">{currentTempConfig.max.toFixed(1)}</span>
           </div>
           <div className="flex justify-between text-[10px] mt-1 text-cyber-light">
             <span>Focused</span>
@@ -141,15 +193,26 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
               )}
               {currentProvider === 'gemini' && (
                 <>
-                  {/* Gemini voices from PDF */}
-                  <option value="Puck" className="bg-cyber-dark text-neon-primary">Puck</option>
-                  <option value="Charon" className="bg-cyber-dark text-neon-primary">Charon</option>
-                  <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
-                  <option value="Fenrir" className="bg-cyber-dark text-neon-primary">Fenrir</option>
+                  {/* Updated Gemini voices */}
                   <option value="Aoede" className="bg-cyber-dark text-neon-tertiary">Aoede</option>
+                  <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
                   <option value="Leda" className="bg-cyber-dark text-neon-primary">Leda</option>
-                  <option value="Orus" className="bg-cyber-dark text-neon-primary">Orus</option>
                   <option value="Zephyr" className="bg-cyber-dark text-neon-primary">Zephyr</option>
+                  <option value="Callirhoe" className="bg-cyber-dark text-neon-primary">Callirhoe</option>
+                  <option value="Autonoe" className="bg-cyber-dark text-neon-primary">Autonoe</option>
+                  <option value="Despina" className="bg-cyber-dark text-neon-primary">Despina</option>
+                  <option value="Erinome" className="bg-cyber-dark text-neon-primary">Erinome</option>
+                  <option value="Laomedeia" className="bg-cyber-dark text-neon-primary">Laomedeia</option>
+                  <option value="Achernar" className="bg-cyber-dark text-neon-primary">Achernar</option>
+                  <option value="Gacrux" className="bg-cyber-dark text-neon-primary">Gacrux</option>
+                  <option value="Pulcherrima" className="bg-cyber-dark text-neon-primary">Pulcherrima</option>
+                  <option value="Vindemiatrix" className="bg-cyber-dark text-neon-primary">Vindemiatrix</option>
+                  <option value="Sulafat" className="bg-cyber-dark text-neon-primary">Sulafat</option>
+                  {/* Original shorter list for reference, can be removed if new list is complete */}
+                  {/* <option value="Puck" className="bg-cyber-dark text-neon-primary">Puck</option> */}
+                  {/* <option value="Charon" className="bg-cyber-dark text-neon-primary">Charon</option> */}
+                  {/* <option value="Fenrir" className="bg-cyber-dark text-neon-primary">Fenrir</option> */}
+                  {/* <option value="Orus" className="bg-cyber-dark text-neon-primary">Orus</option> */}
                 </>
               )}
             </select>
@@ -161,7 +224,8 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
         onClick={handleConfirm}
         className="terminal-button flex items-center gap-2 px-5 py-2 text-base"
       >
-        <Brain className="text-neon-primary" size={16} /> {/* Changed Icon */}
+        {/* <Brain className="text-neon-primary" size={16} /> Temporarily removed Brain icon */}
+        <Zap className="text-neon-primary" size={16} /> {/* Using Zap as a placeholder */}
         <span className="neon-text">INITIALIZE ({currentProvider.toUpperCase()})</span>
       </button>
     </div>

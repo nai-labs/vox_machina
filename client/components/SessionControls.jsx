@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Zap, Power, Send, Cpu, Code } from "react-feather";
+import { Zap, Power, Send, Cpu, Code, Mic, MicOff, Save } from "react-feather"; // Added Mic, MicOff, Save
 
 function SessionStopped({ startSession }) {
   const [isActivating, setIsActivating] = useState(false);
@@ -56,7 +56,15 @@ function SessionStopped({ startSession }) {
   );
 }
 
-function SessionActive({ stopSession, sendTextMessage, currentProvider }) { // Added currentProvider
+function SessionActive({ 
+  stopSession, 
+  sendTextMessage, 
+  currentProvider,
+  isUserAudioStreaming,
+  onStartUserAudioStream,
+  onStopUserAudioStream,
+  onSaveLastGeminiAudio   // New prop for saving Gemini audio
+}) {
   const [message, setMessage] = useState("");
   const [commandPrefix, setCommandPrefix] = useState(">");
   
@@ -107,6 +115,32 @@ function SessionActive({ stopSession, sendTextMessage, currentProvider }) { // A
         <Send size={16} className="text-neon-secondary" />
         <span className="text-neon-secondary">TRANSMIT</span>
       </button>
+
+      {/* Microphone button for Gemini */}
+      {currentProvider === 'gemini' && (
+        <>
+          <button
+            onClick={isUserAudioStreaming ? onStopUserAudioStream : onStartUserAudioStream}
+            className={`terminal-button flex items-center gap-2 px-4 py-3 ${
+              isUserAudioStreaming ? "border-red-500 text-red-400" : "border-neon-primary text-neon-primary"
+            }`}
+            title={isUserAudioStreaming ? "Stop Recording" : "Start Recording (Push-to-Talk)"}
+          >
+            {isUserAudioStreaming ? <MicOff size={16} /> : <Mic size={16} />}
+            <span className={isUserAudioStreaming ? "animate-pulse" : ""}>
+              {isUserAudioStreaming ? "REC" : "MIC"}
+            </span>
+          </button>
+          <button
+            onClick={onSaveLastGeminiAudio}
+            className="terminal-button flex items-center gap-2 px-4 py-3 border-neon-secondary text-neon-secondary"
+            title="Save last Gemini audio response"
+          >
+            <Save size={16} />
+            <span>SAVE LAST</span>
+          </button>
+        </>
+      )}
       
       <button 
         onClick={stopSession} 
@@ -124,19 +158,27 @@ export default function SessionControls({
   stopSession,
   sendClientEvent,
   sendTextMessage,
-  serverEvents,
+  serverEvents, // This prop seems unused in SessionActive, consider removing if not needed
   isSessionActive,
-  currentProvider, // Added currentProvider
+  currentProvider,
+  isUserAudioStreaming,
+  onStartUserAudioStream,
+  onStopUserAudioStream,
+  onSaveLastGeminiAudio   // New prop
 }) {
   return (
     <div className="flex gap-4 h-full w-full">
       {isSessionActive ? (
         <SessionActive
           stopSession={stopSession}
-          sendClientEvent={sendClientEvent} // This is App.jsx's sendClientEvent, already OpenAI specific
-          sendTextMessage={sendTextMessage} // This is the generic one from App.jsx
+          sendClientEvent={sendClientEvent} 
+          sendTextMessage={sendTextMessage} 
           serverEvents={serverEvents}
-          currentProvider={currentProvider} // Pass down
+          currentProvider={currentProvider}
+          isUserAudioStreaming={isUserAudioStreaming}
+          onStartUserAudioStream={onStartUserAudioStream}
+          onStopUserAudioStream={onStopUserAudioStream}
+          onSaveLastGeminiAudio={onSaveLastGeminiAudio} // Pass down
         />
       ) : (
         <SessionStopped startSession={startSession} />

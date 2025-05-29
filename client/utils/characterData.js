@@ -11,6 +11,7 @@ function loadCharactersFromJson() {
       description: char.description,
       promptName: char.promptName,
       voice: char.voice,
+      prompt: char.prompt, // Added prompt field
       iconType: char.iconType || 'user', // Default to 'user' if iconType is not specified
       avatarPath: char.avatarPath // Include the avatar path if available
     }));

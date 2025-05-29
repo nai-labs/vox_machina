@@ -11,6 +11,8 @@ import { useAudioRecording } from "../hooks/useAudioRecording";
 import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js"; // New OpenAI provider
 import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js"; // New Gemini provider
 import { useAudioExport } from "../hooks/useAudioExport";
+import { usePcmPlayer } from "../hooks/usePcmPlayer.js"; 
+import { usePcmStreamer } from "../hooks/usePcmStreamer.js"; // Import PCM streamer hook
 
 export default function App() {
   const [events, setEvents] = useState([]);
@@ -23,8 +25,10 @@ export default function App() {
   const processedEventsRef = useRef(new Set());
 
   // Custom hooks
-  const audioRecording = useAudioRecording();
+  const audioRecording = useAudioRecording(); // This is for OpenAI's MediaStream recording
   const audioExport = useAudioExport();
+  const pcmPlayer = usePcmPlayer(); 
+  const pcmStreamer = usePcmStreamer(); // Instantiate PCM streamer for user input
 
   // Instantiate providers - only one will be effectively used based on currentProviderType
   const openaiSession = useOpenAISession();
@@ -36,6 +40,11 @@ export default function App() {
   function handleSelectCharacter(character) {
     setSelectedCharacter(character);
     setIsCharacterSelectionMode(false);
+    // It's a good practice to ensure AudioContext is ready on a user gesture
+    // especially if it might be used soon after for Gemini.
+    if (currentProviderType === 'gemini') {
+      pcmPlayer.ensureAudioContext();
+    }
   }
   
   function handleBackToCharacterSelect() {
@@ -46,27 +55,42 @@ export default function App() {
     processedEventsRef.current.clear();
     setEvents([]); // Clear UI events on new session start
 
+    // Ensure AudioContext is active for Gemini before starting session,
+    // as audio might come back immediately.
+    if (currentProviderType === 'gemini') {
+      pcmPlayer.ensureAudioContext();
+    }
+
     if (currentProviderType === 'openai') {
       await openaiSession.startSession(selectedCharacter, (stream) => {
         audioRecording.setupMediaRecorder(stream); // OpenAI provides a MediaStream
       });
     } else if (currentProviderType === 'gemini') {
-      // Gemini provider will use callbacks for events and audio chunks
       await geminiSession.startSession(
         selectedCharacter,
         (geminiEvent) => { // onEventReceived
-          // Process Gemini text events, status, transcriptions etc.
-          console.log('[Gemini Event]', geminiEvent);
-          const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}`;
-          if (processedEventsRef.current.has(eventId)) return;
+          console.log('[App.jsx] Gemini Event Received:', geminiEvent);
+          const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}-${Math.random()}`;
+          if (processedEventsRef.current.has(eventId)) {
+            // console.log('[App.jsx] Duplicate Gemini event skipped:', eventId);
+            return;
+          }
           processedEventsRef.current.add(eventId);
           setEvents((prev) => [geminiEvent, ...prev]);
 
-          // TODO: Adapt audio recording triggers for Gemini events
+          if (geminiEvent.type === 'gemini_generation_complete') {
+            console.log('[App.jsx] Gemini generation complete, finalizing PCM player audio.');
+            pcmPlayer.finalizeCurrentResponse();
+          }
+          // TODO: Adapt audio recording triggers for Gemini events (if needed for full conversation export)
         },
-        (audioChunk) => { // onAudioChunkReceived
-          // TODO: Handle incoming PCM audio chunks from Gemini
-          console.log('[Gemini Audio Chunk]', audioChunk ? audioChunk.byteLength : 'null');
+        (audioChunkMessage) => { // onAudioChunkReceived - expecting { type: 'gemini_audio_chunk', data: base64String }
+          if (audioChunkMessage && audioChunkMessage.type === 'gemini_audio_chunk' && audioChunkMessage.data) {
+            console.log('[App.jsx] Received Gemini Audio Chunk, passing to player:', audioChunkMessage.data.length);
+            pcmPlayer.addAudioChunk(audioChunkMessage.data);
+          } else {
+            console.warn('[App.jsx] Received malformed audio chunk message:', audioChunkMessage);
+          }
         }
       );
     }
@@ -91,9 +115,33 @@ export default function App() {
   }
 
   function sendTextMessage(message) {
-    // Both providers should have a sendTextMessage method.
+    if (currentProviderType === 'gemini') {
+      pcmPlayer.clearCurrentResponseAccumulator(); // Clear any previous response audio before new input
+    }
     currentSession.sendTextMessage(message, setEvents);
   }
+
+  // Functions to control user audio streaming for Gemini
+  const handleStartUserAudioStream = () => {
+    if (currentProviderType === 'gemini' && geminiSession.isSessionActive && !pcmStreamer.isStreaming) {
+      pcmPlayer.clearCurrentResponseAccumulator(); // Clear for new response based on voice input
+      console.log('[App.jsx] Starting user audio stream for Gemini...');
+      pcmStreamer.startStreaming((base64PcmChunk) => {
+        if (geminiSession.isSessionActive) { 
+          geminiSession.sendAudioData(base64PcmChunk); 
+        }
+      });
+    }
+  };
+
+  const handleStopUserAudioStream = () => {
+    if (pcmStreamer.isStreaming) {
+      console.log('[App.jsx] Stopping user audio stream for Gemini...');
+      pcmStreamer.stopStreaming();
+      // Optionally send an audio_stream_end message to Google via server if needed by VAD
+      // geminiSession.sendAudioStreamEndSignal(); // Method to be added
+    }
+  };
 
   // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
@@ -338,10 +386,18 @@ export default function App() {
                       )}
                     </>
                   ) : currentProviderType === 'gemini' && currentSession.isSessionActive ? (
-                     // Placeholder for Gemini audio visualization / UI
-                    <div className="flex items-center justify-center h-full text-neon-secondary">
-                      Gemini Audio Session Active (Visualization TBD)
-                    </div>
+                    // Gemini audio visualization
+                    pcmPlayer.analyserNode ? (
+                      <WaveformVisualizer 
+                        analyserNode={pcmPlayer.analyserNode}
+                        // isMicMuted might be relevant if we visualize user input later
+                        // For now, it's mainly for output visualization
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-neon-secondary">
+                        Gemini Audio Session Active (Initializing Visualizer...)
+                      </div>
+                    )
                   ) : !currentSession.isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">
                       <div className="terminal-panel p-6 border-neon-primary max-w-md">
@@ -403,11 +459,29 @@ export default function App() {
                   <SessionControls
                     startSession={startSession}
                     stopSession={stopSession}
-                    sendClientEvent={sendClientEvent} // Note: currently OpenAI specific
+                    sendClientEvent={sendClientEvent} 
                     sendTextMessage={sendTextMessage}
                     events={events}
                     isSessionActive={currentSession.isSessionActive}
-                    currentProvider={currentProviderType} // Pass provider to disable irrelevant controls
+                    currentProvider={currentProviderType}
+                    isUserAudioStreaming={pcmStreamer.isStreaming}
+                    onStartUserAudioStream={handleStartUserAudioStream}
+                    onStopUserAudioStream={handleStopUserAudioStream}
+                    // For Save Last functionality with Gemini
+                    onSaveLastGeminiAudio={() => {
+                      if (currentProviderType === 'gemini') {
+                        const audioData = pcmPlayer.getLastResponsePcmData();
+                        if (audioData) {
+                          // We'll need a new export function for PCM data
+                          // For now, let's log it. We'll add exportPcmAsWav to useAudioExport next.
+                          console.log('[App.jsx] Request to save last Gemini audio. Data:', audioData);
+                          audioExport.exportPcmDataAsWav(audioData.pcmData, audioData.sampleRate, audioData.channels, selectedCharacter, 'last-response-gemini');
+                        } else {
+                          console.warn('[App.jsx] No last Gemini audio data to save.');
+                          // Optionally, provide user feedback e.g., via an alert or status message
+                        }
+                      }
+                    }}
                   />
                 </div>
               </div>

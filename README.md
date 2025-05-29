@@ -4,11 +4,11 @@
   <img src="banner.png" alt="VOX MACHINA Interface" style="width: 100%; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);" />
 </div>
 
-A high-performance testing framework for state-of-the-art multimodal voice AI models based on OpenAI's Realtime API. VOX MACHINA provides a cyberpunk-inspired interface for pushing the boundaries of AI vocal capabilities and real-time interaction.
+A high-performance testing framework for state-of-the-art multimodal voice AI models supporting both OpenAI's Realtime API and Google's Gemini Live API. VOX MACHINA provides a cyberpunk-inspired interface for pushing the boundaries of AI vocal capabilities and real-time interaction across multiple AI providers.
 
 ## Technical Overview
 
-VOX MACHINA is built on a WebRTC implementation of OpenAI's Realtime API, providing bidirectional audio streams with low-latency communication. The framework focuses on:
+VOX MACHINA is built with dual provider support - utilizing WebRTC implementation for OpenAI's Realtime API and native audio processing for Google's Gemini Live API, providing bidirectional audio streams with low-latency communication. The framework focuses on:
 
 - **Voice Model Stress Testing**: Evaluate AI vocal performance with customizable prompts
 - **Multimodal Interaction**: Process real-time audio while maintaining persistent context
@@ -40,10 +40,15 @@ Before installing VOX MACHINA, ensure your system meets the following requiremen
   - Speakers or headphones
   - 4GB RAM minimum (8GB recommended)
 - **Network**: Stable internet connection with 2+ Mbps upload/download
-- **OpenAI API**: 
-  - API key with access to the Realtime API
-  - GPT-4o model access
-  - Credit balance for API usage
+- **AI Provider APIs**: 
+  - **OpenAI API** (for OpenAI Realtime mode):
+    - API key with access to the Realtime API
+    - GPT-4o model access
+    - Credit balance for API usage
+  - **Google Gemini API** (for Gemini Live mode):
+    - Google AI API key with access to Gemini Live API
+    - Gemini 2.0 Flash Live model access
+    - Credit balance for API usage
 
 ## Installation
 
@@ -56,7 +61,9 @@ Before installing VOX MACHINA, ensure your system meets the following requiremen
 2. Configure your environment:
    ```bash
    cp .env.example .env
-   # Edit .env and add your OpenAI API key: OPENAI_API_KEY="your-key-here"
+   # Edit .env and add your API keys:
+   # OPENAI_API_KEY="your-openai-key-here"
+   # GOOGLE_API_KEY="your-google-api-key-here"  # For Gemini Live API
    ```
 
 3. Install dependencies:

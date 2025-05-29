@@ -6,8 +6,9 @@ import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import localtunnel from "localtunnel";
-import { WebSocketServer } from "ws"; // Added for WebSocket
-import { GoogleGenerativeAI } from "@google/generative-ai"; // Added for Gemini
+import { WebSocketServer } from "ws"; // For creating the server
+import WebSocket from 'ws'; // For creating a WebSocket client connection
+import { GoogleGenerativeAI } from "@google/generative-ai"; // Added for Gemini (though direct WS might not use it)
 import { getCharacterPromptById } from "./server-utils.js";
 
 // Configure ffmpeg to use the static binary
@@ -302,97 +303,229 @@ if (process.env.NODE_ENV !== 'test') {
           return;
         }
 
-        // Initialize GoogleGenerativeAI
-        const genAI = new GoogleGenerativeAI(geminiApiKey);
-        let geminiSession = null; // To store the active Gemini Live API session
-        let clientWantsAudio = false; // Determined by client's initial config
+        // Removed GoogleGenerativeAI SDK instantiation here as we're using direct WebSocket for Live API
+        // const genAI = new GoogleGenerativeAI(geminiApiKey);
+        // const WebSocket = WebSocketServer.WebSocket; // This was incorrect
 
-        console.log('Client connected to /ws/gemini. Waiting for initial config.');
+        let googleWs = null; // WebSocket connection from this server to Google
+        let clientConfigData = null; // Store initial config from client
+        let isGoogleSessionSetupComplete = false; // Track if Google setup is complete
+
+        console.log('Client connected to /ws/gemini. Waiting for initial config from client.');
 
         ws.on('message', async (message) => {
           const messageString = message.toString();
-          console.log('Received from client for /ws/gemini:', messageString);
+          let parsedMessage;
+          try {
+            parsedMessage = JSON.parse(messageString);
+            console.log('Received from client for /ws/gemini:', parsedMessage);
+          } catch (e) {
+            console.error('Failed to parse message from client (expecting JSON):', messageString, e);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ error: 'Invalid message format. Expecting JSON.' }));
+            }
+            return;
+          }
 
-          if (!geminiSession) {
-            // Expecting the first message to be a configuration object
-            try {
-              const clientConfig = JSON.parse(messageString);
-              console.log('Received client config for Gemini:', clientConfig);
+          if (parsedMessage.type === 'gemini_config' && !googleWs) {
+            clientConfigData = parsedMessage; 
+            // Force the specific model requested by the user
+            const modelForGoogle = 'models/gemini-2.5-flash-exp-native-audio-thinking-dialog'; 
+            // gemini-2.5-flash-preview-native-audio-dialog 
+            // gemini-2.5-flash-exp-native-audio-thinking-dialog
+            const systemPromptForGoogle = clientConfigData.systemPrompt || "";
+            // Force AUDIO modality as per user's model choice constraint
+            const responseModalityForGoogle = ["AUDIO"]; 
+            const geminiVoice = clientConfigData.geminiVoice;
 
-              // TODO: Validate clientConfig and extract necessary parameters
-              // For now, assume clientConfig contains { characterId, responseModality: 'TEXT' | 'AUDIO', ... }
-              // const character = getCharacterPromptById(clientConfig.characterId || 'default');
-              // if (!character) {
-              //   ws.send(JSON.stringify({ error: 'Character not found' }));
-              //   ws.terminate();
-              //   return;
-              // }
+            console.log(`Using Gemini model: ${modelForGoogle} with AUDIO modality.`);
+            if (geminiVoice) console.log(`Requested Gemini voice: ${geminiVoice}`);
 
-              // clientWantsAudio = clientConfig.responseModality === 'AUDIO';
+            const googleWsUrl = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+            
+            console.log(`Attempting to connect to Google Live API at ${googleWsUrl} with model ${modelForGoogle}`);
+
+            // For direct WebSocket, API key is usually sent as a header.
+            // The 'ws' library allows specifying headers during connection.
+            googleWs = new WebSocket(googleWsUrl, {
+              headers: {
+                'x-goog-api-key': geminiApiKey 
+                // Note: If this doesn't work, Google might require an ephemeral AuthToken via Authorization: Token <token>
+                // This would involve an extra step to call AuthTokenService.CreateToken first.
+              }
+            });
+
+            googleWs.onopen = () => {
+              console.log('Connection to Google Live API established.');
               
-              // const geminiModelName = clientConfig.model || "gemini-2.0-flash-live-001"; // Or from character config
-              // const geminiSdkConfig = {
-              //   response_modalities: [clientConfig.responseModality || "TEXT"],
-              //   system_instruction: { parts: [{ text: character.prompt }] },
-              //   // TODO: Add speech_config, tool_config etc. based on clientConfig and PDF
-              // };
-
-              // console.log(`Attempting to connect to Gemini Live API with model: ${geminiModelName}`);
-              // console.log(`Gemini SDK Config:`, geminiSdkConfig);
-
-              // This is a conceptual placeholder based on Python SDK.
-              // The actual JS SDK usage for Live API needs to be verified.
-              // It might be `genAI.getGenerativeModel({ model: geminiModelName }).startChat()`
-              // or a more specific method for Live API if available.
-              // For now, we'll simulate the connection setup.
-              
-              // Placeholder: Assume connection is successful and store a mock session
-              geminiSession = {
-                send: async (data) => console.log(`[MOCK Gemini] Would send to Gemini: ${data}`),
-                close: () => console.log('[MOCK Gemini] Session closed'),
-                // In a real scenario, this would be the SDK's session object
+              const generationConfig = {
+                responseModalities: responseModalityForGoogle,
               };
-              console.log('Mock Gemini session established.');
-              ws.send(JSON.stringify({ status: 'Gemini session initialized (mock)' }));
 
-              // TODO: If using the actual SDK, set up listeners for Gemini responses here
-              // and forward them to `ws.send()`
+              if (clientConfigData.temperature !== undefined) {
+                let temp = parseFloat(clientConfigData.temperature);
+                // Sanity clamp, though UI should send valid values for the provider.
+                // Assuming Gemini's max is 2.0 as per user.
+                temp = Math.min(Math.max(temp, 0.0), 2.0); 
+                generationConfig.temperature = temp;
+                console.log(`[Server] Setting Gemini temperature to: ${generationConfig.temperature}`);
+              }
 
-            } catch (e) {
-              console.error('Failed to parse client config or setup Gemini session:', e);
-              ws.send(JSON.stringify({ error: 'Invalid initial configuration for Gemini session.' }));
-              ws.terminate();
+              if (responseModalityForGoogle.includes('AUDIO') && geminiVoice) {
+                generationConfig.speechConfig = {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voice_name: geminiVoice }
+                  }
+                };
+              }
+
+              const setupMessagePayload = {
+                model: modelForGoogle,
+                systemInstruction: {
+                  parts: [{ text: systemPromptForGoogle }]
+                },
+                generationConfig: generationConfig,
+                outputAudioTranscription: {} // Requesting transcriptions for the audio output
+                // TODO: Add tools, realtimeInputConfig, etc. as needed from clientConfigData
+              };
+
+              const setupMessage = { setup: setupMessagePayload };
+              
+              console.log('Sending BidiGenerateContentSetup to Google:', JSON.stringify(setupMessage, null, 2));
+              googleWs.send(JSON.stringify(setupMessage));
+            };
+
+            googleWs.onmessage = (event) => {
+              const googleMsgString = event.data.toString();
+              console.log('Received message from Google Live API:', googleMsgString);
+              try {
+                const googleMsg = JSON.parse(googleMsgString);
+                if (googleMsg.setupComplete) {
+                  console.log('Google Live API setup complete.');
+                  isGoogleSessionSetupComplete = true; // Set flag
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ status: 'Gemini session initialized (via direct WebSocket)' }));
+                  }
+                } else if (googleMsg.serverContent) {
+                  // Handle output transcription
+                  if (googleMsg.serverContent.outputTranscription && googleMsg.serverContent.outputTranscription.text) {
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({ type: 'gemini_transcription', text: googleMsg.serverContent.outputTranscription.text }));
+                    }
+                  }
+                  // Handle model turn text (might be present even with audio, e.g., for function calls or errors)
+                  if (googleMsg.serverContent.modelTurn && googleMsg.serverContent.modelTurn.parts) {
+                    const textPart = googleMsg.serverContent.modelTurn.parts.find(p => p.text);
+                    if (textPart && textPart.text) {
+                       if (ws.readyState === WebSocket.OPEN) {
+                         ws.send(JSON.stringify({ type: 'gemini_text_chunk', text: textPart.text }));
+                       }
+                    }
+                    // Handle audio data from googleMsg.serverContent.modelTurn.parts
+                    const audioPart = googleMsg.serverContent.modelTurn.parts.find(p => 
+                        p.inlineData && 
+                        typeof p.inlineData.mimeType === 'string' && 
+                        p.inlineData.mimeType.startsWith('audio/pcm') // Corrected MimeType Check
+                    );
+                    if (audioPart && audioPart.inlineData.data) {
+                        console.log('Received audio data chunk from Google, forwarding to client. MimeType:', audioPart.inlineData.mimeType, 'Data length (base64):', audioPart.inlineData.data.length);
+                        if (ws.readyState === WebSocket.OPEN) {
+                           ws.send(JSON.stringify({ type: 'gemini_audio_chunk', data: audioPart.inlineData.data /* This should be a base64 string */ }));
+                        }
+                    }
+                  }
+
+                  if (googleMsg.serverContent.generationComplete) {
+                     if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'gemini_generation_complete' }));
+                     }
+                  }
+                  // TODO: Handle tool calls, errors, etc.
+                } else {
+                   if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'google_raw_message', data: googleMsg }));
+                   }
+                }
+              } catch (e) {
+                console.error('Error parsing message from Google or forwarding to client:', e);
+              }
+            };
+
+            googleWs.onerror = (error) => {
+              console.error('Error on WebSocket connection to Google Live API:', error.message);
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ error: `Google WebSocket error: ${error.message}` }));
+              }
+              if (googleWs) googleWs.terminate();
+              googleWs = null;
+            };
+
+            googleWs.onclose = (event) => {
+              console.log('WebSocket connection to Google Live API closed:', event.code, event.reason);
+              isGoogleSessionSetupComplete = false; // Reset flag
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ status: 'Gemini session with Google closed.', code: event.code, reason: event.reason }));
+              }
+              googleWs = null;
+            };
+
+          } else if ((parsedMessage.type === 'user_text_input' || parsedMessage.type === 'user_audio_input')) {
+            if (googleWs && googleWs.readyState === WebSocket.OPEN && isGoogleSessionSetupComplete) {
+              if (parsedMessage.type === 'user_text_input') {
+                const clientContentMessage = {
+                  clientContent: {
+                    turns: [{ role: "user", parts: [{ text: parsedMessage.text }] }],
+                    turnComplete: true 
+                  }
+                };
+                console.log('[Server] Sending clientContent (text) to Google:', JSON.stringify(clientContentMessage));
+                googleWs.send(JSON.stringify(clientContentMessage));
+              } else if (parsedMessage.type === 'user_audio_input' && parsedMessage.data) {
+                console.log('[Server] Received user_audio_input chunk from client. Data length (base64):', parsedMessage.data.length);
+                const googleAudioMessage = {
+                  realtimeInput: {
+                    audio: {
+                      mimeType: "audio/pcm;rate=16000", 
+                      data: parsedMessage.data 
+                    }
+                  }
+                };
+                googleWs.send(JSON.stringify(googleAudioMessage));
+              }
+            } else {
+              console.warn(`[Server] Received ${parsedMessage.type} but Google session not fully ready. googleWs state: ${googleWs?.readyState}, setupComplete: ${isGoogleSessionSetupComplete}`);
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ error: 'Google session not fully initialized yet. Please wait a moment and retry.' }));
+              }
+            }
+          } else if (!googleWs) { // Fallback for other message types if googleWs is not even initiated
+            console.warn(`[Server] Received ${parsedMessage.type} before Google WebSocket session was even attempted (no config received?).`);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ error: 'Gemini session with Google not ready. Initial config not yet processed by server.' }));
             }
           } else {
-            // Forward subsequent messages to the active Gemini session
-            try {
-              // Assuming message is text for now. Audio would need different handling.
-              // await geminiSession.send(messageString); // Conceptual
-              console.log(`[MOCK Gemini] Forwarding to Gemini: ${messageString}`);
-              // Simulate Gemini echoing back for now
-              ws.send(JSON.stringify({ type: 'gemini_response', text: `Gemini echo: ${messageString}` }));
-            } catch (error) {
-              console.error('Error forwarding message to Gemini or processing response:', error);
-              ws.send(JSON.stringify({ error: 'Failed to communicate with Gemini.' }));
+            console.warn('Unknown message type from client or Google WebSocket not open:', parsedMessage.type);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ error: `Unknown message type: ${parsedMessage.type} or Google WS not open.` }));
             }
           }
         });
 
         ws.on('close', () => {
           console.log('Client disconnected from /ws/gemini');
-          if (geminiSession) {
-            // geminiSession.close(); // Conceptual: Close the connection to Gemini API
-            console.log('[MOCK Gemini] Closing Gemini session due to client disconnect.');
-            geminiSession = null;
+          if (googleWs) {
+            googleWs.terminate();
+            googleWs = null;
+            console.log('Terminated connection to Google Live API due to client disconnect.');
           }
         });
 
         ws.on('error', (error) => {
-          console.error('WebSocket error on /ws/gemini:', error);
-          if (geminiSession) {
-            // geminiSession.close(); // Conceptual
-            console.log('[MOCK Gemini] Closing Gemini session due to WebSocket error.');
-            geminiSession = null;
+          console.error('Client WebSocket error on /ws/gemini:', error);
+          if (googleWs) {
+            googleWs.terminate();
+            googleWs = null;
+            console.log('Terminated connection to Google Live API due to client WebSocket error.');
           }
         });
 
