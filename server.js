@@ -385,8 +385,10 @@ if (process.env.NODE_ENV !== 'test') {
                   parts: [{ text: systemPromptForGoogle }]
                 },
                 generationConfig: generationConfig,
-                outputAudioTranscription: {} // Requesting transcriptions for the audio output
-                // TODO: Add tools, realtimeInputConfig, etc. as needed from clientConfigData
+                outputAudioTranscription: {}, // Requesting transcriptions for the audio output
+                // Attempt to add safetySettings from clientConfigData
+                ...(clientConfigData.safetySettings && { safetySettings: clientConfigData.safetySettings }) 
+                // This will add safetySettings only if it exists in clientConfigData
               };
 
               const setupMessage = { setup: setupMessagePayload };
