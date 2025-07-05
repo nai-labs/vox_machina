@@ -7,6 +7,7 @@ import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
 import { Download, Cpu, Terminal, Zap, Activity, User, Save, Settings } from "react-feather"; // Added Settings
 import { useAudioRecording } from "../hooks/useAudioRecording";
+import { useUnifiedAudioCapture } from "../hooks/useUnifiedAudioCapture"; // New unified capture
 // import { useWebRTCSession } from "../hooks/useWebRTCSession"; // Old import
 import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js"; // New OpenAI provider
 import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js"; // New Gemini provider
@@ -25,7 +26,8 @@ export default function App() {
   const processedEventsRef = useRef(new Set());
 
   // Custom hooks
-  const audioRecording = useAudioRecording(); // This is for OpenAI's MediaStream recording
+  const audioRecording = useAudioRecording(); // Legacy OpenAI recording (still used for real-time response capture)
+  const unifiedAudioCapture = useUnifiedAudioCapture(); // New unified capture system
   const audioExport = useAudioExport();
   const pcmPlayer = usePcmPlayer(); 
   const pcmStreamer = usePcmStreamer(); // Instantiate PCM streamer for user input
@@ -63,30 +65,58 @@ export default function App() {
 
     if (currentProviderType === 'openai') {
       await openaiSession.startSession(selectedCharacter, (stream) => {
-        audioRecording.setupMediaRecorder(stream); // OpenAI provides a MediaStream
+        // Set up both legacy recording (for real-time response capture) and unified capture
+        audioRecording.setupMediaRecorder(stream);
+        unifiedAudioCapture.setupWebRTCCapture(stream);
       });
     } else if (currentProviderType === 'gemini') {
+      // Clear any previous audio data
+      unifiedAudioCapture.clearAudioData();
+      
       await geminiSession.startSession(
         selectedCharacter,
         (geminiEvent) => { // onEventReceived
           console.log('[App.jsx] Gemini Event Received:', geminiEvent);
           const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}-${Math.random()}`;
           if (processedEventsRef.current.has(eventId)) {
-            // console.log('[App.jsx] Duplicate Gemini event skipped:', eventId);
             return;
           }
           processedEventsRef.current.add(eventId);
           setEvents((prev) => [geminiEvent, ...prev]);
 
-          if (geminiEvent.type === 'gemini_generation_complete') {
-            console.log('[App.jsx] Gemini generation complete, finalizing PCM player audio.');
+          if (geminiEvent.type === 'gemini_generation_start') {
+            console.log('[App.jsx] Gemini generation started, beginning response capture.');
+            unifiedAudioCapture.startResponseCapture();
+          } else if (geminiEvent.type === 'gemini_generation_complete') {
+            console.log('[App.jsx] Gemini generation complete, finalizing unified audio capture.');
             pcmPlayer.finalizeCurrentResponse();
+            unifiedAudioCapture.finalizePcmResponse();
           }
-          // TODO: Adapt audio recording triggers for Gemini events (if needed for full conversation export)
         },
-        (audioChunkMessage) => { // onAudioChunkReceived - expecting { type: 'gemini_audio_chunk', data: base64String }
+        (audioChunkMessage) => { // onAudioChunkReceived
           if (audioChunkMessage && audioChunkMessage.type === 'gemini_audio_chunk' && audioChunkMessage.data) {
-            console.log('[App.jsx] Received Gemini Audio Chunk, passing to player:', audioChunkMessage.data.length);
+            console.log('[App.jsx] Received Gemini Audio Chunk, passing to player and unified capture:', audioChunkMessage.data.length);
+            
+            // Decode the base64 PCM data to add to unified capture
+            try {
+              const byteString = atob(audioChunkMessage.data);
+              const byteArray = new Uint8Array(byteString.length);
+              for (let i = 0; i < byteString.length; i++) {
+                byteArray[i] = byteString.charCodeAt(i);
+              }
+              const pcm16BitView = new Int16Array(byteArray.buffer);
+              const float32Array = new Float32Array(pcm16BitView.length);
+              for (let i = 0; i < pcm16BitView.length; i++) {
+                float32Array[i] = pcm16BitView[i] / 32768.0;
+              }
+              
+              // Add to unified capture
+              unifiedAudioCapture.addPcmChunk(float32Array);
+            } catch (error) {
+              console.error('[App.jsx] Error processing PCM chunk for unified capture:', error);
+            }
+            
+            // Still send to PCM player for real-time playback
             pcmPlayer.addAudioChunk(audioChunkMessage.data);
           } else {
             console.warn('[App.jsx] Received malformed audio chunk message:', audioChunkMessage);
@@ -100,6 +130,7 @@ export default function App() {
     currentSession.stopSession(() => {
       audioRecording.stopRecording();
       audioRecording.clearAudioHistory();
+      unifiedAudioCapture.stopCapture();
     });
   }
 
@@ -351,13 +382,13 @@ export default function App() {
                         toggleMicMute={currentSession.toggleMicMute}
                       />
                       
-                      {/* Export buttons */}
+                      {/* Unified Export buttons for OpenAI */}
                       <div className="absolute top-4 right-4 flex gap-2">
                         <button
-                          onClick={() => audioExport.exportLastAudio(audioRecording.lastMessageAudio, selectedCharacter)}
-                          disabled={audioExport.isExporting || !audioRecording.lastMessageAudio}
+                          onClick={() => audioExport.exportLastAudio(unifiedAudioCapture.lastResponseAudio, selectedCharacter)}
+                          disabled={audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio}
                           className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting || !audioRecording.lastMessageAudio ? 'opacity-50 cursor-not-allowed' : ''
+                            audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                           title="Export last AI response"
                         >
@@ -366,10 +397,10 @@ export default function App() {
                         </button>
                         
                         <button
-                          onClick={() => audioExport.exportFullAudio(audioRecording.lastAudioResponse, selectedCharacter)}
-                          disabled={audioExport.isExporting || !audioRecording.lastAudioResponse}
+                          onClick={() => audioExport.exportFullAudio(unifiedAudioCapture.fullConversationAudio, selectedCharacter)}
+                          disabled={audioExport.isExporting || !unifiedAudioCapture.fullConversationAudio}
                           className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting ? 'opacity-50 cursor-not-allowed' : ''
+                            audioExport.isExporting || !unifiedAudioCapture.fullConversationAudio ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                           title="Export full conversation"
                         >
@@ -387,17 +418,56 @@ export default function App() {
                     </>
                   ) : currentProviderType === 'gemini' && currentSession.isSessionActive ? (
                     // Gemini audio visualization
-                    pcmPlayer.analyserNode ? (
-                      <WaveformVisualizer 
-                        analyserNode={pcmPlayer.analyserNode}
-                        // isMicMuted might be relevant if we visualize user input later
-                        // For now, it's mainly for output visualization
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-neon-secondary">
-                        Gemini Audio Session Active (Initializing Visualizer...)
+                    <>
+                      {pcmPlayer.analyserNode ? (
+                        <WaveformVisualizer 
+                          analyserNode={pcmPlayer.analyserNode}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-neon-secondary">
+                          Gemini Audio Session Active (Initializing Visualizer...)
+                        </div>
+                      )}
+                      
+                      {/* Unified Export buttons for Gemini */}
+                      <div className="absolute top-4 right-4 flex gap-2">
+                        <button
+                          onClick={() => audioExport.exportWavAudio(unifiedAudioCapture.lastResponseAudio, 'last', selectedCharacter)}
+                          disabled={audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
+                            audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          title="Export last AI response"
+                        >
+                          <Save size={16} className="text-neon-secondary" />
+                          <span className="text-neon-secondary">EXPORT LAST</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            const fullConversationWav = unifiedAudioCapture.getFullConversationPcmAsWav();
+                            if (fullConversationWav) {
+                              audioExport.exportWavAudio(fullConversationWav, 'full', selectedCharacter);
+                            }
+                          }}
+                          disabled={audioExport.isExporting || !unifiedAudioCapture.getFullConversationPcmAsWav()}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
+                            audioExport.isExporting || !unifiedAudioCapture.getFullConversationPcmAsWav() ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          title="Export full conversation"
+                        >
+                          <Download size={16} className="text-neon-primary" />
+                          <span className="text-neon-primary">EXPORT FULL</span>
+                        </button>
                       </div>
-                    )
+                      
+                      {/* Export status message */}
+                      {audioExport.exportStatus && (
+                        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-cyber-dark border border-neon-primary px-4 py-2 rounded-sm text-neon-primary text-sm">
+                          {audioExport.exportStatus}
+                        </div>
+                      )}
+                    </>
                   ) : !currentSession.isSessionActive && selectedCharacter ? (
                     <div className="flex flex-col items-center justify-center h-full">
                       <div className="terminal-panel p-6 border-neon-primary max-w-md">
@@ -467,21 +537,6 @@ export default function App() {
                     isUserAudioStreaming={pcmStreamer.isStreaming}
                     onStartUserAudioStream={handleStartUserAudioStream}
                     onStopUserAudioStream={handleStopUserAudioStream}
-                    // For Save Last functionality with Gemini
-                    onSaveLastGeminiAudio={() => {
-                      if (currentProviderType === 'gemini') {
-                        const audioData = pcmPlayer.getLastResponsePcmData();
-                        if (audioData) {
-                          // We'll need a new export function for PCM data
-                          // For now, let's log it. We'll add exportPcmAsWav to useAudioExport next.
-                          console.log('[App.jsx] Request to save last Gemini audio. Data:', audioData);
-                          audioExport.exportPcmDataAsWav(audioData.pcmData, audioData.sampleRate, audioData.channels, selectedCharacter, 'last-response-gemini');
-                        } else {
-                          console.warn('[App.jsx] No last Gemini audio data to save.');
-                          // Optionally, provide user feedback e.g., via an alert or status message
-                        }
-                      }
-                    }}
                   />
                 </div>
               </div>

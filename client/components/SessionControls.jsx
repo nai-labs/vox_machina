@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Zap, Power, Send, Cpu, Code, Mic, MicOff, Save } from "react-feather"; // Added Mic, MicOff, Save
+import { Zap, Power, Send, Cpu, Code, Mic, MicOff } from "react-feather"; // Added Mic, MicOff
 
 function SessionStopped({ startSession }) {
   const [isActivating, setIsActivating] = useState(false);
@@ -62,8 +62,7 @@ function SessionActive({
   currentProvider,
   isUserAudioStreaming,
   onStartUserAudioStream,
-  onStopUserAudioStream,
-  onSaveLastGeminiAudio   // New prop for saving Gemini audio
+  onStopUserAudioStream
 }) {
   const [message, setMessage] = useState("");
   const [commandPrefix, setCommandPrefix] = useState(">");
@@ -118,28 +117,18 @@ function SessionActive({
 
       {/* Microphone button for Gemini */}
       {currentProvider === 'gemini' && (
-        <>
-          <button
-            onClick={isUserAudioStreaming ? onStopUserAudioStream : onStartUserAudioStream}
-            className={`terminal-button flex items-center gap-2 px-4 py-3 ${
-              isUserAudioStreaming ? "border-red-500 text-red-400" : "border-neon-primary text-neon-primary"
-            }`}
-            title={isUserAudioStreaming ? "Stop Recording" : "Start Recording (Push-to-Talk)"}
-          >
-            {isUserAudioStreaming ? <MicOff size={16} /> : <Mic size={16} />}
-            <span className={isUserAudioStreaming ? "animate-pulse" : ""}>
-              {isUserAudioStreaming ? "REC" : "MIC"}
-            </span>
-          </button>
-          <button
-            onClick={onSaveLastGeminiAudio}
-            className="terminal-button flex items-center gap-2 px-4 py-3 border-neon-secondary text-neon-secondary"
-            title="Save last Gemini audio response"
-          >
-            <Save size={16} />
-            <span>SAVE LAST</span>
-          </button>
-        </>
+        <button
+          onClick={isUserAudioStreaming ? onStopUserAudioStream : onStartUserAudioStream}
+          className={`terminal-button flex items-center gap-2 px-4 py-3 ${
+            isUserAudioStreaming ? "border-red-500 text-red-400" : "border-neon-primary text-neon-primary"
+          }`}
+          title={isUserAudioStreaming ? "Stop Recording" : "Start Recording (Push-to-Talk)"}
+        >
+          {isUserAudioStreaming ? <MicOff size={16} /> : <Mic size={16} />}
+          <span className={isUserAudioStreaming ? "animate-pulse" : ""}>
+            {isUserAudioStreaming ? "REC" : "MIC"}
+          </span>
+        </button>
       )}
       
       <button 
@@ -163,8 +152,7 @@ export default function SessionControls({
   currentProvider,
   isUserAudioStreaming,
   onStartUserAudioStream,
-  onStopUserAudioStream,
-  onSaveLastGeminiAudio   // New prop
+  onStopUserAudioStream
 }) {
   return (
     <div className="flex gap-4 h-full w-full">
@@ -178,7 +166,6 @@ export default function SessionControls({
           isUserAudioStreaming={isUserAudioStreaming}
           onStartUserAudioStream={onStartUserAudioStream}
           onStopUserAudioStream={onStopUserAudioStream}
-          onSaveLastGeminiAudio={onSaveLastGeminiAudio} // Pass down
         />
       ) : (
         <SessionStopped startSession={startSession} />

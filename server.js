@@ -19,7 +19,7 @@ const port = process.env.PORT || 3000;
 const openAIApiKey = process.env.OPENAI_API_KEY; // Renamed for clarity
 const geminiApiKey = process.env.GEMINI_API_KEY; // Added for Gemini
 
-const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview-2024-12-17";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview";
 // TODO: Define default Gemini model
 // const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-live-001"; // Example from PDF
 
@@ -100,7 +100,7 @@ app.get("/token", async (req, res) => {
 app.post("/save-audio", async (req, res) => {
   try {
     console.log("Received save-audio request");
-    const { audioData, isRecentMessage, exportType, character } = req.body;
+    const { audioData, isRecentMessage, exportType, character, sourceFormat = 'webm' } = req.body;
     
     // Create outputs directory if it doesn't exist
     const outputsDir = path.join(process.cwd(), 'outputs');
@@ -123,6 +123,7 @@ app.post("/save-audio", async (req, res) => {
     
     console.log("Audio data received, size:", audioData.length);
     console.log("Export type:", exportType || "standard");
+    console.log("Source format:", sourceFormat);
     console.log("Character:", character ? character.name : "unknown");
     console.log("Is recent message only:", isRecentMessage ? "yes" : "no");
     
@@ -155,47 +156,73 @@ app.post("/save-audio", async (req, res) => {
       exportTypeLabel = isRecentMessage ? 'recent-message' : 'ai-audio';
     }
     
-    const filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.webm`;
-    const filePath = path.join(outputsDir, filename);
+    // Determine source file extension based on format
+    const sourceExtension = sourceFormat === 'wav' ? 'wav' : 'webm';
+    const sourceFilename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.${sourceExtension}`;
+    const sourceFilePath = path.join(outputsDir, sourceFilename);
     
-    // Write webm file to disk
-    fs.writeFileSync(filePath, buffer);
-    console.log("Webm file saved to:", filePath);
+    // Write source file to disk
+    fs.writeFileSync(sourceFilePath, buffer);
+    console.log(`${sourceExtension.toUpperCase()} file saved to:`, sourceFilePath);
     
     // Create mp3 filename
     const mp3Filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.mp3`;
     const mp3FilePath = path.join(outputsDir, mp3Filename);
     
-    // Convert webm to mp3 using ffmpeg with silence removal
-    await new Promise((resolve, reject) => {
-      ffmpeg(filePath)
-        .output(mp3FilePath)
-        .audioFilters('silenceremove=stop_periods=-1:stop_threshold=-50dB:stop_duration=1:start_threshold=-50dB:start_duration=0.1')
-        .audioCodec('libmp3lame')
-        .audioBitrate('128k')
-        .on('end', () => {
-          console.log('MP3 conversion finished with silence removal:', mp3FilePath);
-          resolve();
-        })
-        .on('error', (err) => {
-          console.error('MP3 conversion error:', err);
-          reject(err);
-        })
-        .run();
-    });
-    
-    res.json({ 
-      success: true, 
-      message: "Audio saved successfully", 
-      webm: {
-        filename,
-        path: filePath
-      },
-      mp3: {
-        filename: mp3Filename,
-        path: mp3FilePath
-      }
-    });
+    // Convert to mp3 using ffmpeg with silence removal
+    try {
+      await new Promise((resolve, reject) => {
+        const ffmpegCommand = ffmpeg(sourceFilePath)
+          .output(mp3FilePath)
+          .audioFilters('silenceremove=stop_periods=-1:stop_threshold=-50dB:stop_duration=1:start_threshold=-50dB:start_duration=0.1')
+          .audioCodec('libmp3lame')
+          .audioBitrate('128k')
+          .on('end', () => {
+            console.log('MP3 conversion finished with silence removal:', mp3FilePath);
+            resolve();
+          })
+          .on('error', (err) => {
+            console.error('MP3 conversion error:', err);
+            reject(err);
+          });
+
+        // Handle different input formats
+        if (sourceFormat === 'wav') {
+          ffmpegCommand.inputFormat('wav');
+        }
+        
+        ffmpegCommand.run();
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Audio saved successfully", 
+        source: {
+          filename: sourceFilename,
+          path: sourceFilePath,
+          format: sourceExtension
+        },
+        mp3: {
+          filename: mp3Filename,
+          path: mp3FilePath
+        }
+      });
+    } catch (conversionError) {
+      console.error("MP3 conversion failed:", conversionError);
+      
+      // If conversion fails, still return success for the source file
+      res.json({ 
+        success: true, 
+        message: "Audio saved successfully (MP3 conversion failed)", 
+        source: {
+          filename: sourceFilename,
+          path: sourceFilePath,
+          format: sourceExtension
+        },
+        mp3: null,
+        warning: `MP3 conversion failed: ${conversionError.message}`
+      });
+    }
   } catch (error) {
     console.error("Error saving audio:", error);
     res.status(500).json({ error: `Failed to save audio file: ${error.message}` });

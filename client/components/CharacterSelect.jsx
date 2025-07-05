@@ -63,7 +63,7 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
       if (currentProvider === 'gemini') {
         // For Gemini, if default is chosen, use character's geminiVoice if defined, else a hardcoded Gemini default.
         // Since we decided not to add geminiVoice to characters.json, we'll use a general default.
-        voiceToUse = 'Kore'; // General default Gemini voice
+        voiceToUse = 'Aoede'; // General default Gemini voice
       } else { // OpenAI
         voiceToUse = selectedCharacterData.voice || 'sage'; // Character's OpenAI default or general OpenAI default
       }
@@ -198,7 +198,7 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
                   <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
                   <option value="Leda" className="bg-cyber-dark text-neon-primary">Leda</option>
                   <option value="Zephyr" className="bg-cyber-dark text-neon-primary">Zephyr</option>
-                  <option value="Callirhoe" className="bg-cyber-dark text-neon-primary">Callirhoe</option>
+                  <option value="Callirrhoe" className="bg-cyber-dark text-neon-primary">Callirrhoe</option>
                   <option value="Autonoe" className="bg-cyber-dark text-neon-primary">Autonoe</option>
                   <option value="Despina" className="bg-cyber-dark text-neon-primary">Despina</option>
                   <option value="Erinome" className="bg-cyber-dark text-neon-primary">Erinome</option>

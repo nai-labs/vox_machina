@@ -49,7 +49,8 @@ export function useAudioExport() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState(null);
 
-  const exportAudioBlob = useCallback(async (audioBlob, exportType, filenamePrefix, character) => {
+  // Unified export function that works for both WebM and WAV blobs
+  const exportAudioBlob = useCallback(async (audioBlob, exportType, character, sourceFormat = 'webm') => {
     if (!audioBlob || audioBlob.size === 0) {
       console.log(`No audio data to export for type: ${exportType}`);
       setExportStatus("No audio to export");
@@ -71,12 +72,13 @@ export function useAudioExport() {
             throw new Error("FileReader resulted in null or undefined data.");
           }
 
+          // Trim large full conversation exports
           if (exportType === 'full' && base64data.length > 10000000) { 
             console.log("Audio data for 'full' export is too large, trimming to last 10MB of data.");
             base64data = base64data.substring(base64data.length - 10000000);
           }
           
-          console.log(`Sending ${exportType} audio data to /save-audio. Length: ${base64data.length}`);
+          console.log(`Sending ${exportType} audio data to /save-audio. Format: ${sourceFormat}, Length: ${base64data.length}`);
 
           const response = await fetch('/save-audio', {
             method: 'POST',
@@ -84,20 +86,35 @@ export function useAudioExport() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              audioData: base64data, // This is base64 WebM for OpenAI
+              audioData: base64data,
               exportType: exportType,
               character: character,
-              sourceFormat: 'webm' // Indicate original format for server
+              sourceFormat: sourceFormat // Now supports both 'webm' and 'wav'
             }),
           });
 
           const result = await response.json();
           console.log(`Server response for ${exportType} export:`, result);
 
-          if (result.success && result.mp3 && result.mp3.filename) {
-            console.log(`${exportType === 'last' ? 'Last audio response' : 'Full audio conversation'} saved as ${result.mp3.filename}`);
-            setExportStatus(`Saved as ${result.mp3.filename}`);
-            setTimeout(() => setExportStatus(null), 3000);
+          if (result.success) {
+            const outputFile = result.mp3 || result.source;
+            if (outputFile && outputFile.filename) {
+              console.log(`${exportType === 'last' ? 'Last audio response' : 'Full audio conversation'} saved as ${outputFile.filename}`);
+              setExportStatus(`Saved as ${outputFile.filename}`);
+              setTimeout(() => setExportStatus(null), 3000);
+            } else {
+              setExportStatus("Export completed but no output file reported");
+              setTimeout(() => setExportStatus(null), 3000);
+            }
+            
+            // Show warning if MP3 conversion failed but source file was saved
+            if (result.warning) {
+              console.warn(`Export warning: ${result.warning}`);
+              setTimeout(() => {
+                setExportStatus(`Warning: ${result.warning}`);
+                setTimeout(() => setExportStatus(null), 3000);
+              }, 3500);
+            }
           } else {
             console.error(`Server returned error for ${exportType} export:`, result.error);
             setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`);
@@ -126,6 +143,7 @@ export function useAudioExport() {
     }
   }, []);
 
+  // OpenAI WebRTC audio export (WebM format)
   const exportLastAudio = useCallback(async (lastMessageAudio, character) => {
     console.log("Attempting to export last audio response...");
     if (!lastMessageAudio || lastMessageAudio.size === 0) {
@@ -134,82 +152,38 @@ export function useAudioExport() {
       setTimeout(() => setExportStatus(null), 3000);
       return;
     }
-    await exportAudioBlob(lastMessageAudio, 'last', 'last_ai_response', character);
+    await exportAudioBlob(lastMessageAudio, 'last', character, 'webm');
   }, [exportAudioBlob]);
 
-  const exportFullAudio = useCallback(async (lastAudioResponse, character) => {
+  const exportFullAudio = useCallback(async (fullAudioResponse, character) => {
     console.log("Attempting to export full AI audio conversation...");
-    if (!lastAudioResponse || lastAudioResponse.size === 0) {
+    if (!fullAudioResponse || fullAudioResponse.size === 0) {
       console.log("No full conversation audio available or size is 0 for export.");
       setExportStatus("No audio to export");
       setTimeout(() => setExportStatus(null), 3000);
       return;
     }
-    await exportAudioBlob(lastAudioResponse, 'full', 'full_ai_conversation', character);
+    await exportAudioBlob(fullAudioResponse, 'full', character, 'webm');
   }, [exportAudioBlob]);
 
-  const exportPcmDataAsWav = useCallback(async (float32PcmArray, sampleRateVal, numChannelsVal, character, exportNamePrefix = 'gemini-response') => {
-    if (!float32PcmArray || float32PcmArray.length === 0) {
-      console.log("[AudioExport] No PCM data to export.");
+  // Gemini WAV audio export 
+  const exportWavAudio = useCallback(async (wavBlob, exportType, character) => {
+    console.log(`Attempting to export ${exportType} WAV audio...`);
+    if (!wavBlob || wavBlob.size === 0) {
+      console.log(`No ${exportType} WAV audio available or size is 0 for export.`);
       setExportStatus("No audio to export");
       setTimeout(() => setExportStatus(null), 3000);
       return;
     }
-
-    setIsExporting(true);
-    setExportStatus(`Exporting ${exportNamePrefix}...`);
-    console.log(`[AudioExport] Exporting PCM data as WAV. Samples: ${float32PcmArray.length}, SampleRate: ${sampleRateVal}, Channels: ${numChannelsVal}`);
-
-    try {
-      const wavBlob = pcmFloat32ToWavBlob(float32PcmArray, sampleRateVal, numChannelsVal);
-      
-      // Option 1: Direct WAV download (client-side only)
-      const now = new Date();
-      const date = now.toISOString().split('T')[0];
-      const time = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-      const timestamp = `${date}_${time}`;
-      const characterName = character?.name?.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'unknown-character';
-      const filename = `vox-machina_${characterName}_${exportNamePrefix}_${timestamp}.wav`;
-
-      const url = URL.createObjectURL(wavBlob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      console.log(`[AudioExport] WAV file "${filename}" download initiated.`);
-      setExportStatus(`Saved as ${filename}`);
-      setTimeout(() => setExportStatus(null), 3000);
-
-      // Option 2: Send WAV to server for MP3 conversion (if desired later)
-      /*
-      const reader = new FileReader();
-      reader.readAsDataURL(wavBlob);
-      reader.onloadend = async () => {
-        const base64WavData = reader.result;
-        // ... send base64WavData to /save-audio with a new 'sourceFormat: 'wav'' field ...
-        // ... server would need to handle this new sourceFormat ...
-      };
-      */
-
-    } catch (error) {
-      console.error('[AudioExport] Error exporting PCM data as WAV:', error);
-      setExportStatus(`Export failed: ${error.message}`);
-      setTimeout(() => setExportStatus(null), 5000);
-    } finally {
-      setIsExporting(false);
-    }
-  }, []);
+    await exportAudioBlob(wavBlob, exportType, character, 'wav');
+  }, [exportAudioBlob]);
 
   return {
     isExporting,
     exportStatus,
-    exportLastAudio,
-    exportFullAudio,
-    exportPcmDataAsWav // Added new function
+    exportLastAudio,      // For OpenAI WebRTC (WebM)
+    exportFullAudio,      // For OpenAI WebRTC (WebM)
+    exportWavAudio,       // For Gemini WAV blobs
+    exportAudioBlob       // Generic export function
   };
 }
