@@ -54,22 +54,23 @@ export default function App() {
   }
   
   async function startSession() {
-    processedEventsRef.current.clear();
-    setEvents([]); // Clear UI events on new session start
+    try {
+      processedEventsRef.current.clear();
+      setEvents([]); // Clear UI events on new session start
 
-    // Ensure AudioContext is active for Gemini before starting session,
-    // as audio might come back immediately.
-    if (currentProviderType === 'gemini') {
-      pcmPlayer.ensureAudioContext();
-    }
+      // Ensure AudioContext is active for Gemini before starting session,
+      // as audio might come back immediately.
+      if (currentProviderType === 'gemini') {
+        pcmPlayer.ensureAudioContext();
+      }
 
-    if (currentProviderType === 'openai') {
-      await openaiSession.startSession(selectedCharacter, (stream) => {
-        // Set up both legacy recording (for real-time response capture) and unified capture
-        audioRecording.setupMediaRecorder(stream);
-        unifiedAudioCapture.setupWebRTCCapture(stream);
-      });
-    } else if (currentProviderType === 'gemini') {
+      if (currentProviderType === 'openai') {
+        await openaiSession.startSession(selectedCharacter, (stream) => {
+          // Set up both legacy recording (for real-time response capture) and unified capture
+          audioRecording.setupMediaRecorder(stream);
+          unifiedAudioCapture.setupWebRTCCapture(stream);
+        });
+      } else if (currentProviderType === 'gemini') {
       // Clear any previous audio data
       unifiedAudioCapture.clearAudioData();
       
@@ -123,6 +124,18 @@ export default function App() {
           }
         }
       );
+    }
+    } catch (error) {
+      console.error("Failed to start session:", error);
+      // Show error to user
+      setEvents((prev) => [
+        {
+          type: 'error',
+          message: `Failed to start ${currentProviderType.toUpperCase()} session: ${error.message}`,
+          timestamp: new Date().toISOString()
+        },
+        ...prev
+      ]);
     }
   }
 

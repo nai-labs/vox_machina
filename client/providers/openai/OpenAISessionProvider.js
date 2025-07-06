@@ -26,17 +26,53 @@ export function useOpenAISession() { // Renamed from useWebRTCSession
       return;
     }
     
-    console.log("Starting OpenAI session with character:", selectedCharacter); // Log context
-    console.log("Temperature:", selectedCharacter.temperature);
-    console.log("Voice:", selectedCharacter.voice);
-    
-    // Get an ephemeral key from the server with the selected character and parameters
-    const tokenUrl = `/token?character=${selectedCharacter.id}&temperature=${selectedCharacter.temperature}${selectedCharacter.voice ? `&voice=${selectedCharacter.voice}` : ''}`;
-    console.log("Token URL for OpenAI:", tokenUrl); // Log context
-    
-    const tokenResponse = await fetch(tokenUrl);
-    const data = await tokenResponse.json();
-    const EPHEMERAL_KEY = data.client_secret.value;
+    try {
+      console.log("Starting OpenAI session with character:", selectedCharacter); // Log context
+      console.log("Temperature:", selectedCharacter.temperature);
+      console.log("Voice:", selectedCharacter.voice);
+      
+      // Get an ephemeral key from the server with the selected character and parameters
+      const tokenUrl = `/token?character=${selectedCharacter.id}&temperature=${selectedCharacter.temperature}${selectedCharacter.voice ? `&voice=${selectedCharacter.voice}` : ''}`;
+      console.log("Token URL for OpenAI:", tokenUrl); // Log context
+      
+      console.log("Fetching token from server...");
+      const tokenResponse = await fetch(tokenUrl);
+      
+      if (!tokenResponse.ok) {
+        throw new Error(`Token request failed: ${tokenResponse.status} ${tokenResponse.statusText}`);
+      }
+      
+      const data = await tokenResponse.json();
+      console.log("Token response data:", data); // Debug log
+      
+      // Handle error responses from server
+      if (data.error) {
+        throw new Error(`Server error: ${data.error}`);
+      }
+      
+      if (!data.client_secret) {
+        console.error("Available response keys:", Object.keys(data));
+        throw new Error(`No client_secret in token response. Available keys: ${Object.keys(data).join(', ')}`);
+      }
+      
+      // Handle different client_secret formats
+      let EPHEMERAL_KEY;
+      if (typeof data.client_secret === 'object' && data.client_secret.value) {
+        EPHEMERAL_KEY = data.client_secret.value;
+        console.log("Using client_secret.value:", EPHEMERAL_KEY.substring(0, 10) + "...");
+        
+        // Log expiration info if available
+        if (data.client_secret.expires_at) {
+          const expiresAt = new Date(data.client_secret.expires_at * 1000);
+          console.log("Token expires at:", expiresAt.toISOString());
+        }
+      } else if (typeof data.client_secret === 'string') {
+        EPHEMERAL_KEY = data.client_secret;
+        console.log("Using client_secret as string:", EPHEMERAL_KEY.substring(0, 10) + "...");
+      } else {
+        console.error("Unexpected client_secret format:", typeof data.client_secret, data.client_secret);
+        throw new Error(`Invalid client_secret format: ${typeof data.client_secret}`);
+      }
 
     // Set the API model name from the token response
     if (data.apiModel) {
@@ -107,6 +143,23 @@ export function useOpenAISession() { // Renamed from useWebRTCSession
     await pc.setRemoteDescription(answer);
 
     peerConnection.current = pc;
+    setIsSessionActive(true);
+    console.log("OpenAI session successfully started");
+    
+    } catch (error) {
+      console.error("Failed to start OpenAI session:", error);
+      // Clean up any resources if session failed
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      if (micTrackRef.current) {
+        micTrackRef.current.stop();
+        micTrackRef.current = null;
+      }
+      setIsSessionActive(false);
+      throw error; // Re-throw to let App.jsx handle the error
+    }
   }, [apiModelName]); // apiModelName dependency is fine
 
   const stopSession = useCallback((onSessionStopped) => {

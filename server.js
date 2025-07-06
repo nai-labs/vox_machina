@@ -19,6 +19,23 @@ const port = process.env.PORT || 3000;
 const openAIApiKey = process.env.OPENAI_API_KEY; // Renamed for clarity
 const geminiApiKey = process.env.GEMINI_API_KEY; // Added for Gemini
 
+// Validate API keys at startup
+if (!openAIApiKey) {
+  console.warn("⚠️  OPENAI_API_KEY not found in environment variables. OpenAI functionality will not work.");
+} else {
+  console.log(`✅ OpenAI API key loaded: ${openAIApiKey.substring(0, 8)}...${openAIApiKey.slice(-4)}`);
+  // Basic format validation
+  if (!openAIApiKey.startsWith('sk-') || openAIApiKey.length < 20) {
+    console.warn("⚠️  OpenAI API key format appears invalid. Expected format: sk-...");
+  }
+}
+
+if (!geminiApiKey) {
+  console.warn("⚠️  GEMINI_API_KEY not found in environment variables. Gemini functionality will not work.");
+} else {
+  console.log(`✅ Gemini API key loaded: ${geminiApiKey.substring(0, 8)}...${geminiApiKey.slice(-4)}`);
+}
+
 const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview";
 // TODO: Define default Gemini model
 // const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-live-001"; // Example from PDF
@@ -88,6 +105,45 @@ app.get("/token", async (req, res) => {
     );
 
     const data = await response.json();
+    
+    // Log the response for debugging
+    console.log("OpenAI Realtime Sessions API response:", JSON.stringify(data, null, 2));
+    
+    // Check if the response is successful and has the expected format
+    if (!response.ok) {
+      console.error("OpenAI API error:", data);
+      
+      // Provide specific error messages based on the error type
+      let errorMessage = "OpenAI API request failed";
+      if (data.error) {
+        if (data.error.code === 'invalid_api_key') {
+          errorMessage = `Invalid OpenAI API key. Please check your OPENAI_API_KEY environment variable. Error: ${data.error.message}`;
+        } else if (data.error.code === 'insufficient_quota') {
+          errorMessage = `Insufficient quota/credits for OpenAI API. Please add credits to your account. Error: ${data.error.message}`;
+        } else if (data.error.code === 'model_not_found') {
+          errorMessage = `Model not found. The Realtime API model may not be available for your account. Error: ${data.error.message}`;
+        } else {
+          errorMessage = `OpenAI API error (${data.error.code}): ${data.error.message}`;
+        }
+      }
+      
+      return res.status(response.status).json({ 
+        error: errorMessage,
+        openai_error: data.error,
+        status_code: response.status
+      });
+    }
+    
+    // Validate the response format
+    if (!data.client_secret) {
+      console.error("OpenAI API response missing client_secret:", data);
+      return res.status(500).json({ 
+        error: "OpenAI API response missing client_secret field",
+        response_keys: Object.keys(data),
+        full_response: data
+      });
+    }
+    
     // Include the apiModel in the response
     res.json({ ...data, apiModel });
   } catch (error) {
