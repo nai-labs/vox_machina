@@ -252,37 +252,41 @@ export default function App() {
   };
 
   const ProviderToggle = () => (
-    <div className="flex items-center gap-2 p-2 rounded-md bg-cyber-dark-secondary border border-neon-secondary shadow-lg">
-      <span className="text-xs text-neon-secondary uppercase tracking-wider mr-2">Provider:</span>
-      <button
-        onClick={() => setCurrentProviderType('openai')}
-        disabled={currentSession.isSessionActive}
-        className={`terminal-button px-3 py-1 text-sm ${
-          currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-        } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-      >
-        OpenAI
-      </button>
-      <button
-        onClick={() => setCurrentProviderType('gemini')}
-        disabled={currentSession.isSessionActive}
-        className={`terminal-button px-3 py-1 text-sm ${
-          currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-        } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-      >
-        Gemini
-      </button>
+    <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 p-1 sm:p-2 rounded-md bg-cyber-dark-secondary border border-neon-secondary shadow-lg">
+      <span className="text-xs text-neon-secondary uppercase tracking-wider mr-0 sm:mr-2 hidden sm:inline">Provider:</span>
+      <div className="flex gap-1">
+        <button
+          onClick={() => setCurrentProviderType('openai')}
+          disabled={currentSession.isSessionActive}
+          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${
+            currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+          } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          OpenAI
+        </button>
+        <button
+          onClick={() => setCurrentProviderType('gemini')}
+          disabled={currentSession.isSessionActive}
+          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${
+            currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+          } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          Gemini
+        </button>
+      </div>
     </div>
   );
 
   return (
-    <div className="bg-cyber-dark text-cyber-text font-cyber">
+    <div className="bg-cyber-dark text-cyber-text font-cyber h-screen overflow-hidden">
       {showSplashScreen ? (
         <SplashScreen onComplete={handleSplashComplete} />
       ) : (
         <>
           {/* Background effects */}
-          <div className="terminal-scan-line"></div>
+          <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+            <div className="terminal-scan-line"></div>
+          </div>
           <div className="absolute inset-0 bg-gradient-radial from-cyber-dark via-cyber-dark to-black opacity-80 pointer-events-none"></div>
           
           {/* Fast flickering particles in the background */}
@@ -303,20 +307,25 @@ export default function App() {
             ))}
           </div>
           
-          <nav className="absolute top-0 left-0 right-0 h-20 flex items-center z-10">
-            <div className="terminal-header flex items-center justify-between gap-4 w-full m-4 pb-2 border-0 border-b border-solid border-neon-primary">
-              <div className="flex items-center gap-4">
+          <nav className="absolute top-0 left-0 right-0 h-20 sm:h-20 md:h-24 flex items-center z-10">
+            <div className="terminal-header flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 w-full m-2 sm:m-4 pb-2 border-0 border-b border-solid border-neon-primary">
+              <div className="flex items-center gap-2 sm:gap-4 order-1 sm:order-1">
                 <div className="flex items-center gap-2">
-                  <Cpu size={20} className="text-neon-primary" />
-                  <Terminal size={20} className="text-neon-secondary" />
+                  <Cpu size={16} sm:size={20} className="text-neon-primary" />
+                  <Terminal size={16} sm:size={20} className="text-neon-secondary" />
                 </div>
-                <h1 className="glitch-text neon-text" data-text="VOX MACHINA CONSOLE">VOX MACHINA CONSOLE</h1>
+                <h1 className="glitch-text neon-text text-sm sm:text-base lg:text-lg" data-text="VOX MACHINA CONSOLE">
+                  <span className="hidden sm:inline">VOX MACHINA CONSOLE</span>
+                  <span className="sm:hidden">VOX MACHINA</span>
+                </h1>
               </div>
 
-              <ProviderToggle /> {/* Added Provider Toggle UI */}
+              <div className="order-3 sm:order-2">
+                <ProviderToggle />
+              </div>
               
               {/* Logo in header */}
-              <div className="h-14 relative">
+              <div className="h-10 sm:h-12 lg:h-14 relative order-2 sm:order-3">
                 <img 
                   src={logo} 
                   alt="Vox Machina" 
@@ -339,10 +348,10 @@ export default function App() {
             <div className="absolute inset-0 bg-scan-lines"></div>
           </div>
           
-          <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center">
-            <section className="absolute top-0 left-0 right-0 bottom-0 flex flex-col max-w-7xl mx-auto px-4 w-full">
+          <main className="absolute top-20 sm:top-20 md:top-24 left-0 right-0 bottom-0 flex items-stretch justify-center">
+            <section className="flex flex-col w-full max-w-7xl mx-auto px-2 sm:px-4 h-full overflow-y-auto">
               {/* DATA STREAM */}
-              <div className="terminal-panel w-full h-32 mb-4 overflow-hidden">
+              <div className="terminal-panel w-full h-24 sm:h-28 md:h-32 mb-2 sm:mb-4 overflow-hidden flex-shrink-0">
                 <div className="terminal-header flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Zap size={16} />
@@ -360,22 +369,24 @@ export default function App() {
               </div>
               
               {/* AI Audio Waveform Visualizer or Character Selection */}
-              <div className="terminal-panel w-full flex-grow mb-4">
+              <div className="terminal-panel w-full flex-grow mb-2 sm:mb-4 min-h-0">
                 <div className="terminal-header flex items-center justify-between">
                   {/* Title changes based on mode and provider */}
                   {!currentSession.isSessionActive && isCharacterSelectionMode ? (
                     <>
                       <span className="flex items-center gap-2">
                         <User size={16} className="text-neon-primary" />
-                        PERSONA SELECTION ({currentProviderType.toUpperCase()})
+                        <span className="hidden sm:inline">PERSONA SELECTION ({currentProviderType.toUpperCase()})</span>
+                        <span className="sm:hidden">PERSONA ({currentProviderType.toUpperCase()})</span>
                       </span>
-                      <div className="text-xs opacity-70">[SELECT CHARACTER TO CONTINUE]</div>
+                      <div className="text-xs opacity-70 hidden sm:block">[SELECT CHARACTER TO CONTINUE]</div>
                     </>
                   ) : (
                     <>
                       <span className="flex items-center gap-2">
                         <Activity size={16} className="text-neon-primary" />
-                        AUDIO VISUALIZATION ({currentProviderType.toUpperCase()})
+                        <span className="hidden sm:inline">AUDIO VISUALIZATION ({currentProviderType.toUpperCase()})</span>
+                        <span className="sm:hidden">AUDIO ({currentProviderType.toUpperCase()})</span>
                       </span>
                       <div className={`text-xs ${audioRecording.isRecordingCurrentResponse ? "text-neon-primary animate-pulse" : "opacity-50"}`}>
                         {audioRecording.isRecordingCurrentResponse ? "TRANSMITTING" : "IDLE"}
@@ -530,13 +541,14 @@ export default function App() {
               </div>
               
               {/* Command Interface */}
-              <div className="terminal-panel w-full h-32">
+              <div className="terminal-panel w-full h-24 sm:h-28 md:h-32 flex-shrink-0">
                 <div className="terminal-header flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Terminal size={16} />
-                    COMMAND INTERFACE ({currentProviderType.toUpperCase()})
+                    <span className="hidden sm:inline">COMMAND INTERFACE ({currentProviderType.toUpperCase()})</span>
+                    <span className="sm:hidden">COMMAND ({currentProviderType.toUpperCase()})</span>
                   </span>
-                  <div className="text-xs opacity-70">[STATUS: {currentSession.isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
+                  <div className="text-xs opacity-70">[{currentSession.isSessionActive ? "ONLINE" : "OFFLINE"}]</div>
                 </div>
                 <div className="terminal-content h-full">
                   <SessionControls

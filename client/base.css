@@ -49,13 +49,14 @@ https://tailwindcss.com/docs/preflight
 
 html,
 body {
-  height: 100%;
+  height: 100vh;
   width: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: "Share Tech Mono", "Consolas", "Andale Mono", monospace;
-  font-size: 0.9rem;
+  font-size: clamp(0.75rem, 2.5vw, 0.9rem);
   background-color: var(--cyber-dark);
   color: var(--color-text);
   position: relative;
@@ -86,6 +87,15 @@ body::before {
   backdrop-filter: blur(2px);
   position: relative;
   animation: borderPulse 8s infinite ease-in-out;
+}
+
+/* Reduce effects on mobile */
+@media (max-width: 768px) {
+  .terminal-panel {
+    backdrop-filter: none;
+    animation: none;
+    box-shadow: 0 0 5px rgba(10, 255, 255, 0.2);
+  }
 }
 
 .terminal-panel::before {
@@ -174,6 +184,8 @@ body::before {
   background-position: right 8px center;
   background-size: 16px;
   padding-right: 30px;
+  position: relative;
+  z-index: 50;
 }
 
 .terminal-select:focus {
@@ -193,6 +205,7 @@ body::before {
   position: relative;
   display: inline-block;
   width: 100%;
+  z-index: 50;
 }
 
 .terminal-select-wrapper::after {
@@ -258,6 +271,14 @@ body::before {
 .glitch-text {
   position: relative;
   overflow: hidden;
+}
+
+/* Disable glitch effects on mobile for performance */
+@media (max-width: 768px) {
+  .glitch-text::before,
+  .glitch-text::after {
+    display: none;
+  }
 }
 
 .glitch-text::before,
@@ -366,6 +387,15 @@ body::before {
   }
 }
 
+/* Reduce motion for mobile devices */
+@media (max-width: 768px) {
+  @keyframes pulse {
+    0% { opacity: 0.8; }
+    50% { opacity: 1; }
+    100% { opacity: 0.8; }
+  }
+}
+
 /* Regular float animation - slower */
 @keyframes float {
   0% {
@@ -388,15 +418,15 @@ body::before {
 /* Fast teleporting/flickering animation for particles */
 @keyframes flicker {
   0% { opacity: 0.1; transform: translate(0px, 0px); }
-  10% { opacity: 0.6; transform: translate(100px, -150px); }
-  20% { opacity: 0.3; transform: translate(-200px, 50px); }
-  30% { opacity: 0.8; transform: translate(300px, 200px); }
-  40% { opacity: 0.2; transform: translate(-150px, -250px); }
-  50% { opacity: 0.9; transform: translate(250px, 0px); }
-  60% { opacity: 0.4; transform: translate(-300px, 100px); }
-  70% { opacity: 0.7; transform: translate(100px, 300px); }
-  80% { opacity: 0.2; transform: translate(-200px, -100px); }
-  90% { opacity: 0.5; transform: translate(150px, -200px); }
+  10% { opacity: 0.6; transform: translate(50px, -75px); }
+  20% { opacity: 0.3; transform: translate(-100px, 25px); }
+  30% { opacity: 0.8; transform: translate(150px, 100px); }
+  40% { opacity: 0.2; transform: translate(-75px, -125px); }
+  50% { opacity: 0.9; transform: translate(125px, 0px); }
+  60% { opacity: 0.4; transform: translate(-150px, 50px); }
+  70% { opacity: 0.7; transform: translate(50px, 150px); }
+  80% { opacity: 0.2; transform: translate(-100px, -50px); }
+  90% { opacity: 0.5; transform: translate(75px, -100px); }
   100% { opacity: 0.1; transform: translate(0px, 0px); }
 }
 

@@ -10,6 +10,7 @@ import { WebSocketServer } from "ws"; // For creating the server
 import WebSocket from 'ws'; // For creating a WebSocket client connection
 import { GoogleGenerativeAI } from "@google/generative-ai"; // Added for Gemini (though direct WS might not use it)
 import { getCharacterPromptById } from "./server-utils.js";
+import { performAudioHealthCheck, getValidationSummary } from "./server/audioValidator.js";
 
 // Configure ffmpeg to use the static binary
 ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -36,7 +37,7 @@ if (!geminiApiKey) {
   console.log(`✅ Gemini API key loaded: ${geminiApiKey.substring(0, 8)}...${geminiApiKey.slice(-4)}`);
 }
 
-const DEFAULT_OPENAI_MODEL = "gpt-4o-realtime-preview";
+const DEFAULT_OPENAI_MODEL = "gpt-realtime";
 // TODO: Define default Gemini model
 // const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-live-001"; // Example from PDF
 
@@ -183,15 +184,38 @@ app.post("/save-audio", async (req, res) => {
     console.log("Character:", character ? character.name : "unknown");
     console.log("Is recent message only:", isRecentMessage ? "yes" : "no");
     
-    // Ensure the data is properly formatted
+    // Validate base64 data format
     let base64Data = audioData;
     if (base64Data.indexOf('base64,') > -1) {
       base64Data = base64Data.split('base64,')[1];
     }
     
-    // Convert base64 data to buffer
-    const buffer = Buffer.from(base64Data, 'base64');
-    console.log("Buffer created, size:", buffer.length);
+    // Validate base64 format
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
+      console.error("Invalid base64 data format");
+      return res.status(400).json({ error: "Invalid audio data format" });
+    }
+    
+    // Convert base64 data to buffer with error handling
+    let buffer;
+    try {
+      buffer = Buffer.from(base64Data, 'base64');
+      console.log("Buffer created, size:", buffer.length);
+      
+      // Validate minimum size (empty files are problematic)
+      if (buffer.length < 100) {
+        console.error("Audio buffer too small:", buffer.length);
+        return res.status(400).json({ error: "Audio data appears to be empty or corrupted" });
+      }
+      
+      // Check for very large files
+      if (buffer.length > 100 * 1024 * 1024) { // 100MB limit
+        console.warn("Very large audio file detected:", (buffer.length / 1024 / 1024).toFixed(1), "MB");
+      }
+    } catch (decodeError) {
+      console.error("Failed to decode base64 audio data:", decodeError);
+      return res.status(400).json({ error: "Failed to decode audio data" });
+    }
     
     // Create descriptive filename
     let characterName = 'unknown-character';
@@ -217,13 +241,55 @@ app.post("/save-audio", async (req, res) => {
     const sourceFilename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.${sourceExtension}`;
     const sourceFilePath = path.join(outputsDir, sourceFilename);
     
-    // Write source file to disk
-    fs.writeFileSync(sourceFilePath, buffer);
-    console.log(`${sourceExtension.toUpperCase()} file saved to:`, sourceFilePath);
+    // Write source file to disk with error handling
+    try {
+      fs.writeFileSync(sourceFilePath, buffer);
+      console.log(`${sourceExtension.toUpperCase()} file saved to:`, sourceFilePath);
+      
+      // Verify the file was written correctly
+      const writtenSize = fs.statSync(sourceFilePath).size;
+      if (writtenSize !== buffer.length) {
+        throw new Error(`File size mismatch: expected ${buffer.length}, got ${writtenSize}`);
+      }
+    } catch (writeError) {
+      console.error("Failed to write source file:", writeError);
+      return res.status(500).json({ error: `Failed to save source file: ${writeError.message}` });
+    }
     
     // Create mp3 filename
     const mp3Filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.mp3`;
     const mp3FilePath = path.join(outputsDir, mp3Filename);
+    
+    // Create WAV fallback for WebM files if needed
+    let wavFilePath = null;
+    let wavFilename = null;
+    
+    if (sourceFormat === 'webm') {
+      wavFilename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.wav`;
+      wavFilePath = path.join(outputsDir, wavFilename);
+      
+      try {
+        await new Promise((resolve, reject) => {
+          ffmpeg(sourceFilePath)
+            .output(wavFilePath)
+            .audioCodec('pcm_s16le')
+            .audioFrequency(44100)
+            .audioChannels(1)
+            .on('end', () => {
+              console.log('WAV conversion finished:', wavFilePath);
+              resolve();
+            })
+            .on('error', (err) => {
+              console.warn('WAV conversion failed:', err.message);
+              resolve(); // Don't fail the whole operation
+            })
+            .run();
+        });
+      } catch (wavError) {
+        console.warn('WAV conversion error:', wavError);
+        // Continue without WAV file
+      }
+    }
     
     // Convert to mp3 using ffmpeg with silence removal
     try {
@@ -235,11 +301,28 @@ app.post("/save-audio", async (req, res) => {
           .audioBitrate('128k')
           .on('end', () => {
             console.log('MP3 conversion finished with silence removal:', mp3FilePath);
-            resolve();
+            
+            // Verify MP3 was created successfully
+            if (fs.existsSync(mp3FilePath)) {
+              const mp3Size = fs.statSync(mp3FilePath).size;
+              if (mp3Size > 0) {
+                console.log('MP3 file verified, size:', mp3Size);
+                resolve();
+              } else {
+                reject(new Error('MP3 file is empty'));
+              }
+            } else {
+              reject(new Error('MP3 file was not created'));
+            }
           })
           .on('error', (err) => {
             console.error('MP3 conversion error:', err);
             reject(err);
+          })
+          .on('progress', (progress) => {
+            if (progress.percent) {
+              console.log(`MP3 conversion progress: ${Math.round(progress.percent)}%`);
+            }
           });
 
         // Handle different input formats
@@ -250,7 +333,7 @@ app.post("/save-audio", async (req, res) => {
         ffmpegCommand.run();
       });
 
-      res.json({ 
+      const response = { 
         success: true, 
         message: "Audio saved successfully", 
         source: {
@@ -262,12 +345,40 @@ app.post("/save-audio", async (req, res) => {
           filename: mp3Filename,
           path: mp3FilePath
         }
-      });
+      };
+      
+      // Include WAV file if it was created
+      if (wavFilePath && fs.existsSync(wavFilePath)) {
+        response.wav = {
+          filename: wavFilename,
+          path: wavFilePath
+        };
+      }
+      
+      // Perform health check on exported files
+      try {
+        const healthCheck = await performAudioHealthCheck(response);
+        response.healthCheck = healthCheck;
+        
+        // Log health check results
+        console.log('Audio export health check:', healthCheck.overall);
+        if (healthCheck.errors.length > 0) {
+          console.warn('Health check errors:', healthCheck.errors);
+        }
+        if (healthCheck.recommendations.length > 0) {
+          console.log('Health check recommendations:', healthCheck.recommendations);
+        }
+      } catch (healthError) {
+        console.warn('Health check failed:', healthError);
+        response.healthCheckError = healthError.message;
+      }
+      
+      res.json(response);
     } catch (conversionError) {
       console.error("MP3 conversion failed:", conversionError);
       
       // If conversion fails, still return success for the source file
-      res.json({ 
+      const response = { 
         success: true, 
         message: "Audio saved successfully (MP3 conversion failed)", 
         source: {
@@ -277,7 +388,36 @@ app.post("/save-audio", async (req, res) => {
         },
         mp3: null,
         warning: `MP3 conversion failed: ${conversionError.message}`
-      });
+      };
+      
+      // Include WAV file if it was created
+      if (wavFilePath && fs.existsSync(wavFilePath)) {
+        response.wav = {
+          filename: wavFilename,
+          path: wavFilePath
+        };
+        response.message = "Audio saved successfully (MP3 conversion failed, but WAV available)";
+      }
+      
+      // Perform health check on exported files
+      try {
+        const healthCheck = await performAudioHealthCheck(response);
+        response.healthCheck = healthCheck;
+        
+        // Log health check results
+        console.log('Audio export health check:', healthCheck.overall);
+        if (healthCheck.errors.length > 0) {
+          console.warn('Health check errors:', healthCheck.errors);
+        }
+        if (healthCheck.recommendations.length > 0) {
+          console.log('Health check recommendations:', healthCheck.recommendations);
+        }
+      } catch (healthError) {
+        console.warn('Health check failed:', healthError);
+        response.healthCheckError = healthError.message;
+      }
+      
+      res.json(response);
     }
   } catch (error) {
     console.error("Error saving audio:", error);
@@ -393,6 +533,7 @@ if (process.env.NODE_ENV !== 'test') {
         let googleWs = null; // WebSocket connection from this server to Google
         let clientConfigData = null; // Store initial config from client
         let isGoogleSessionSetupComplete = false; // Track if Google setup is complete
+        let modelSpeaking = false; // Track if model is currently speaking to gate mic uplink
 
         console.log('Client connected to /ws/gemini. Waiting for initial config from client.');
 
@@ -413,7 +554,8 @@ if (process.env.NODE_ENV !== 'test') {
           if (parsedMessage.type === 'gemini_config' && !googleWs) {
             clientConfigData = parsedMessage; 
             // Force the specific model requested by the user
-            const modelForGoogle = 'models/gemini-2.5-flash-exp-native-audio-thinking-dialog'; 
+            const modelForGoogle = 'models/gemini-2.5-flash-native-audio-preview-09-2025'; 
+            // gemini-2.5-flash-native-audio-preview-09-2025
             // gemini-2.5-flash-preview-native-audio-dialog 
             // gemini-2.5-flash-exp-native-audio-thinking-dialog
             const systemPromptForGoogle = clientConfigData.systemPrompt || "";
@@ -441,8 +583,12 @@ if (process.env.NODE_ENV !== 'test') {
             googleWs.onopen = () => {
               console.log('Connection to Google Live API established.');
               
+              const debugText = process.env.GEMINI_DEBUG === '1' || (clientConfigData && clientConfigData.debug === true);
+              const responseModalities = debugText ? Array.from(new Set([...responseModalityForGoogle, 'TEXT'])) : responseModalityForGoogle;
+
               const generationConfig = {
-                responseModalities: responseModalityForGoogle,
+                responseModalities,
+                maxOutputTokens: 4096,
               };
 
               if (clientConfigData.temperature !== undefined) {
@@ -485,6 +631,16 @@ if (process.env.NODE_ENV !== 'test') {
               console.log('Received message from Google Live API:', googleMsgString);
               try {
                 const googleMsg = JSON.parse(googleMsgString);
+                // Forward usage metadata to client for debugging/telemetry
+                if (googleMsg.usageMetadata) {
+                  console.log('[Gemini] usage:', JSON.stringify(googleMsg.usageMetadata));
+                  if (typeof googleMsg.usageMetadata.responseTokenCount !== 'undefined') {
+                    console.log(`[Gemini] responseTokenCount: ${googleMsg.usageMetadata.responseTokenCount}`);
+                  }
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'gemini_usage', usage: googleMsg.usageMetadata }));
+                  }
+                }
                 if (googleMsg.setupComplete) {
                   console.log('Google Live API setup complete.');
                   isGoogleSessionSetupComplete = true; // Set flag
@@ -492,6 +648,19 @@ if (process.env.NODE_ENV !== 'test') {
                     ws.send(JSON.stringify({ status: 'Gemini session initialized (via direct WebSocket)' }));
                   }
                 } else if (googleMsg.serverContent) {
+                  // Safety/finish diagnostics
+                  if (typeof googleMsg.serverContent.finishReason !== 'undefined' || typeof googleMsg.serverContent.stopReason !== 'undefined') {
+                    console.log('[Gemini] finishReason:', googleMsg.serverContent.finishReason, 'stopReason:', googleMsg.serverContent.stopReason);
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({ type: 'gemini_finish', finishReason: googleMsg.serverContent.finishReason, stopReason: googleMsg.serverContent.stopReason }));
+                    }
+                  }
+                  if (googleMsg.serverContent.safetyRatings) {
+                    console.log('[Gemini] safetyRatings:', JSON.stringify(googleMsg.serverContent.safetyRatings));
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(JSON.stringify({ type: 'gemini_safety', safetyRatings: googleMsg.serverContent.safetyRatings }));
+                    }
+                  }
                   // Handle output transcription
                   if (googleMsg.serverContent.outputTranscription && googleMsg.serverContent.outputTranscription.text) {
                     if (ws.readyState === WebSocket.OPEN) {
@@ -514,15 +683,29 @@ if (process.env.NODE_ENV !== 'test') {
                     );
                     if (audioPart && audioPart.inlineData.data) {
                         console.log('Received audio data chunk from Google, forwarding to client. MimeType:', audioPart.inlineData.mimeType, 'Data length (base64):', audioPart.inlineData.data.length);
+                        modelSpeaking = true;
                         if (ws.readyState === WebSocket.OPEN) {
                            ws.send(JSON.stringify({ type: 'gemini_audio_chunk', data: audioPart.inlineData.data /* This should be a base64 string */ }));
                         }
                     }
                   }
 
+                  if (googleMsg.serverContent.interrupted) {
+                     modelSpeaking = false;
+                     if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'gemini_interrupted' }));
+                     }
+                  }
                   if (googleMsg.serverContent.generationComplete) {
+                     modelSpeaking = false;
                      if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({ type: 'gemini_generation_complete' }));
+                     }
+                  }
+                  if (googleMsg.serverContent.turnComplete) {
+                     modelSpeaking = false;
+                     if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'gemini_turn_complete' }));
                      }
                   }
                   // TODO: Handle tool calls, errors, etc.
@@ -567,15 +750,22 @@ if (process.env.NODE_ENV !== 'test') {
                 googleWs.send(JSON.stringify(clientContentMessage));
               } else if (parsedMessage.type === 'user_audio_input' && parsedMessage.data) {
                 console.log('[Server] Received user_audio_input chunk from client. Data length (base64):', parsedMessage.data.length);
-                const googleAudioMessage = {
-                  realtimeInput: {
-                    audio: {
-                      mimeType: "audio/pcm;rate=16000", 
-                      data: parsedMessage.data 
+                if (!modelSpeaking) {
+                  const googleAudioMessage = {
+                    realtimeInput: {
+                      audio: {
+                        mimeType: "audio/pcm;rate=16000", 
+                        data: parsedMessage.data 
+                      }
                     }
+                  };
+                  googleWs.send(JSON.stringify(googleAudioMessage));
+                } else {
+                  // Drop uplink audio while model is speaking to avoid VAD-based interruption
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'gemini_uplink_dropped', reason: 'model_speaking' }));
                   }
-                };
-                googleWs.send(JSON.stringify(googleAudioMessage));
+                }
               }
             } else {
               console.warn(`[Server] Received ${parsedMessage.type} but Google session not fully ready. googleWs state: ${googleWs?.readyState}, setupComplete: ${isGoogleSessionSetupComplete}`);

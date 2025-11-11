@@ -2,6 +2,14 @@
 export default {
   content: ["./client/index.html", "./client/**/*.{jsx,tsx}"],
   theme: {
+    screens: {
+      'xs': '475px',
+      'sm': '640px',
+      'md': '768px',
+      'lg': '1024px',
+      'xl': '1280px',
+      '2xl': '1536px',
+    },
     extend: {
       colors: {
         'cyber-dark': '#001a1a',
@@ -38,6 +46,19 @@ export default {
         'pulse-subtle': 'pulse 4s infinite ease-in-out',
         'float': 'float 10s infinite linear',
         'typing': 'typing 1s steps(30, end) forwards'
+      },
+      spacing: {
+        '18': '4.5rem',
+        '88': '22rem',
+      },
+      minHeight: {
+        '12': '3rem',
+        '16': '4rem',
+        '20': '5rem',
+      },
+      maxWidth: {
+        '8xl': '88rem',
+        '9xl': '96rem',
       }
     },
   },

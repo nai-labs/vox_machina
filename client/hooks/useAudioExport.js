@@ -72,10 +72,10 @@ export function useAudioExport() {
             throw new Error("FileReader resulted in null or undefined data.");
           }
 
-          // Trim large full conversation exports
-          if (exportType === 'full' && base64data.length > 10000000) { 
-            console.log("Audio data for 'full' export is too large, trimming to last 10MB of data.");
-            base64data = base64data.substring(base64data.length - 10000000);
+          // Check for very large exports and handle appropriately
+          if (exportType === 'full' && base64data.length > 50000000) { // 50MB limit
+            console.warn(`Audio data for 'full' export is very large (${(base64data.length / 1000000).toFixed(1)}MB). This may take longer to process.`);
+            setExportStatus("Processing large file - this may take a moment...");
           }
           
           console.log(`Sending ${exportType} audio data to /save-audio. Format: ${sourceFormat}, Length: ${base64data.length}`);
@@ -97,32 +97,66 @@ export function useAudioExport() {
           console.log(`Server response for ${exportType} export:`, result);
 
           if (result.success) {
-            const outputFile = result.mp3 || result.source;
-            if (outputFile && outputFile.filename) {
-              console.log(`${exportType === 'last' ? 'Last audio response' : 'Full audio conversation'} saved as ${outputFile.filename}`);
-              setExportStatus(`Saved as ${outputFile.filename}`);
-              setTimeout(() => setExportStatus(null), 3000);
+            // Enhanced file reporting with health check info
+            const files = [];
+            if (result.mp3 && result.mp3.filename) files.push(`MP3: ${result.mp3.filename}`);
+            if (result.wav && result.wav.filename) files.push(`WAV: ${result.wav.filename}`);
+            if (result.source && result.source.filename) files.push(`${result.source.format.toUpperCase()}: ${result.source.filename}`);
+            
+            if (files.length > 0) {
+              console.log(`${exportType === 'last' ? 'Last audio response' : 'Full audio conversation'} saved:`, files);
+              
+              // Show appropriate status based on health check
+              if (result.healthCheck) {
+                switch (result.healthCheck.overall) {
+                  case 'excellent':
+                    setExportStatus(`✅ All formats saved: ${files.length} files`);
+                    break;
+                  case 'partial':
+                    setExportStatus(`⚠️ Partially saved: ${files.length} files (check console)`);
+                    break;
+                  case 'failed':
+                    setExportStatus(`❌ Export issues detected (check console)`);
+                    break;
+                  default:
+                    setExportStatus(`Saved: ${files.length} files`);
+                }
+              } else {
+                setExportStatus(`Saved: ${files.join(', ')}`);
+              }
+              
+              setTimeout(() => setExportStatus(null), 5000);
             } else {
-              setExportStatus("Export completed but no output file reported");
+              setExportStatus("Export completed but no output files reported");
               setTimeout(() => setExportStatus(null), 3000);
             }
             
-            // Show warning if MP3 conversion failed but source file was saved
-            if (result.warning) {
-              console.warn(`Export warning: ${result.warning}`);
+            // Enhanced warning/health check reporting
+            if (result.warning || (result.healthCheck && result.healthCheck.errors.length > 0)) {
+              const warnings = [];
+              if (result.warning) warnings.push(result.warning);
+              if (result.healthCheck && result.healthCheck.errors.length > 0) {
+                warnings.push(...result.healthCheck.errors);
+              }
+              
+              console.warn(`Export warnings:`, warnings);
+              if (result.healthCheck && result.healthCheck.recommendations.length > 0) {
+                console.info('Recommendations:', result.healthCheck.recommendations);
+              }
+              
               setTimeout(() => {
-                setExportStatus(`Warning: ${result.warning}`);
-                setTimeout(() => setExportStatus(null), 3000);
-              }, 3500);
+                setExportStatus(`⚠️ Export completed with warnings (see console)`);
+                setTimeout(() => setExportStatus(null), 4000);
+              }, 5500);
             }
           } else {
             console.error(`Server returned error for ${exportType} export:`, result.error);
-            setExportStatus(`Export failed: ${result.error || 'Unknown server error'}`);
+            setExportStatus(`❌ Export failed: ${result.error || 'Unknown server error'}`);
             setTimeout(() => setExportStatus(null), 5000);
           }
         } catch (error) {
           console.error(`Error processing audio or fetching for ${exportType} export:`, error);
-          setExportStatus(`Export failed: ${error.message}`);
+          setExportStatus(`❌ Export failed: ${error.message}`);
           setTimeout(() => setExportStatus(null), 5000);
         } finally {
           setIsExporting(false);
@@ -132,13 +166,13 @@ export function useAudioExport() {
       reader.onerror = (error) => {
         console.error(`FileReader error for ${exportType} export:`, error);
         setIsExporting(false);
-        setExportStatus("Export failed: Client-side file reading error");
+        setExportStatus("❌ Export failed: Client-side file reading error");
         setTimeout(() => setExportStatus(null), 5000);
       };
     } catch (error) {
       console.error(`Error in exportAudioBlob for ${exportType}:`, error);
       setIsExporting(false);
-      setExportStatus(`Export failed: ${error.message}`);
+      setExportStatus(`❌ Export failed: ${error.message}`);
       setTimeout(() => setExportStatus(null), 5000);
     }
   }, []);

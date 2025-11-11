@@ -85,8 +85,8 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full p-3">
-      <div className="grid grid-cols-4 gap-2 mb-4 w-full max-w-3xl">
+    <div className="flex flex-col items-center justify-center w-full h-full p-3 overflow-y-auto">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 mb-4 w-full max-w-6xl">
         {characters.map((character) => (
           <div 
             key={character.id}
@@ -104,7 +104,7 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
                 <img 
                   src={character.avatarPath} 
                   alt={`${character.name} avatar`}
-                  className={`w-full h-16 object-cover ${
+                  className={`w-full h-12 sm:h-14 md:h-16 object-cover ${
                     selectedCharacterId === character.id 
                       ? "border border-neon-primary animate-pulse-subtle" 
                       : "border border-cyber-light"
@@ -127,95 +127,98 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
       </div>
       
       {/* Neural Voice Parameters Panel */}
-      <div className="terminal-panel w-full max-w-3xl mb-4 p-3">
+      <div className="terminal-panel w-full max-w-6xl mb-4 p-3">
         <div className="terminal-header flex items-center gap-2 mb-3">
           <Zap size={16} className="text-neon-primary" />
           <h3 className="text-sm neon-text">NEURAL VOICE PARAMETERS</h3>
         </div>
         
-        {/* Temperature Control */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <label className="flex items-center gap-1 text-xs">
-              <Thermometer size={14} className={getTemperatureColor(temperature)} />
-              <span>TEMPERATURE ({currentProvider.toUpperCase()})</span>
-            </label>
-            <span className={`text-xs font-mono ${getTemperatureColor(temperature)}`}>{temperature.toFixed(2)}</span>
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Temperature Control */}
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1">
+              <label className="flex items-center gap-1 text-xs">
+                <Thermometer size={14} className={getTemperatureColor(temperature)} />
+                <span>TEMPERATURE ({currentProvider.toUpperCase()})</span>
+              </label>
+              <span className={`text-xs font-mono ${getTemperatureColor(temperature)}`}>{temperature.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-blue-400">{currentTempConfig.min.toFixed(1)}</span>
+              <input
+                type="range"
+                min={currentTempConfig.min}
+                max={currentTempConfig.max}
+                step={currentTempConfig.step}
+                value={temperature}
+                onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                className="flex-1 h-2 bg-cyber-dark rounded-lg appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #3b82f6, #06b6d4, #facc15, #ef4444)`, // Style might need adjustment if range changes drastically
+                }}
+              />
+              <span className="text-xs text-red-400">{currentTempConfig.max.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between text-[10px] mt-1 text-cyber-light">
+              <span>Focused</span>
+              <span>Creative</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-blue-400">{currentTempConfig.min.toFixed(1)}</span>
-            <input
-              type="range"
-              min={currentTempConfig.min}
-              max={currentTempConfig.max}
-              step={currentTempConfig.step}
-              value={temperature}
-              onChange={(e) => setTemperature(parseFloat(e.target.value))}
-              className="flex-1 h-2 bg-cyber-dark rounded-lg appearance-none cursor-pointer"
-              style={{
-                background: `linear-gradient(to right, #3b82f6, #06b6d4, #facc15, #ef4444)`, // Style might need adjustment if range changes drastically
-              }}
-            />
-            <span className="text-xs text-red-400">{currentTempConfig.max.toFixed(1)}</span>
-          </div>
-          <div className="flex justify-between text-[10px] mt-1 text-cyber-light">
-            <span>Focused</span>
-            <span>Creative</span>
-          </div>
-        </div>
-        
-        {/* Voice Selection */}
-        <div>
-          <div className="flex items-center gap-1 mb-1">
-            <Volume2 size={14} className="text-neon-primary" />
-            <label className="text-xs">VOICE PROFILE ({currentProvider.toUpperCase()})</label>
-          </div>
-          <div className="terminal-select-wrapper">
-            <select
-              value={selectedVoice || "default"}
-              onChange={(e) => setSelectedVoice(e.target.value === "default" ? null : e.target.value)}
-              className="terminal-select w-full text-sm p-1.5 bg-cyber-dark border border-neon-primary text-cyber-text"
-            >
-              <option value="default" className="bg-cyber-dark text-neon-secondary">
-                Default ({characters.find(c => c.id === selectedCharacterId)?.voice || (currentProvider === 'openai' ? "sage" : "Kore")})
-              </option>
-              {currentProvider === 'openai' && (
-                <>
-                  <option value="alloy" className="bg-cyber-dark text-neon-primary">Alloy</option>
-                  <option value="ash" className="bg-cyber-dark text-neon-primary">Ash</option>
-                  <option value="ballad" className="bg-cyber-dark text-neon-primary">Ballad</option>
-                  <option value="coral" className="bg-cyber-dark text-neon-tertiary">Coral</option>
-                  <option value="echo" className="bg-cyber-dark text-neon-primary">Echo</option>
-                  <option value="sage" className="bg-cyber-dark text-neon-secondary">Sage</option>
-                  <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
-                  <option value="verse" className="bg-cyber-dark text-neon-primary">Verse</option>
-                </>
-              )}
-              {currentProvider === 'gemini' && (
-                <>
-                  {/* Updated Gemini voices */}
-                  <option value="Aoede" className="bg-cyber-dark text-neon-tertiary">Aoede</option>
-                  <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
-                  <option value="Leda" className="bg-cyber-dark text-neon-primary">Leda</option>
-                  <option value="Zephyr" className="bg-cyber-dark text-neon-primary">Zephyr</option>
-                  <option value="Callirrhoe" className="bg-cyber-dark text-neon-primary">Callirrhoe</option>
-                  <option value="Autonoe" className="bg-cyber-dark text-neon-primary">Autonoe</option>
-                  <option value="Despina" className="bg-cyber-dark text-neon-primary">Despina</option>
-                  <option value="Erinome" className="bg-cyber-dark text-neon-primary">Erinome</option>
-                  <option value="Laomedeia" className="bg-cyber-dark text-neon-primary">Laomedeia</option>
-                  <option value="Achernar" className="bg-cyber-dark text-neon-primary">Achernar</option>
-                  <option value="Gacrux" className="bg-cyber-dark text-neon-primary">Gacrux</option>
-                  <option value="Pulcherrima" className="bg-cyber-dark text-neon-primary">Pulcherrima</option>
-                  <option value="Vindemiatrix" className="bg-cyber-dark text-neon-primary">Vindemiatrix</option>
-                  <option value="Sulafat" className="bg-cyber-dark text-neon-primary">Sulafat</option>
-                  {/* Original shorter list for reference, can be removed if new list is complete */}
-                  {/* <option value="Puck" className="bg-cyber-dark text-neon-primary">Puck</option> */}
-                  {/* <option value="Charon" className="bg-cyber-dark text-neon-primary">Charon</option> */}
-                  {/* <option value="Fenrir" className="bg-cyber-dark text-neon-primary">Fenrir</option> */}
-                  {/* <option value="Orus" className="bg-cyber-dark text-neon-primary">Orus</option> */}
-                </>
-              )}
-            </select>
+          
+          {/* Voice Selection */}
+          <div className="flex-1">
+            <div className="flex items-center gap-1 mb-1">
+              <Volume2 size={14} className="text-neon-primary" />
+              <label className="text-xs">VOICE PROFILE ({currentProvider.toUpperCase()})</label>
+            </div>
+            <div className="terminal-select-wrapper">
+              <select
+                value={selectedVoice || "default"}
+                onChange={(e) => setSelectedVoice(e.target.value === "default" ? null : e.target.value)}
+                className="terminal-select w-full text-sm p-1.5 bg-cyber-dark border border-neon-primary text-cyber-text"
+              >
+                <option value="default" className="bg-cyber-dark text-neon-secondary">
+                  Default ({characters.find(c => c.id === selectedCharacterId)?.voice || (currentProvider === 'openai' ? "sage" : "Kore")})
+                </option>
+                {currentProvider === 'openai' && (
+                  <>
+                    <option value="alloy" className="bg-cyber-dark text-neon-primary">Alloy</option>
+                    <option value="ash" className="bg-cyber-dark text-neon-primary">Ash</option>
+                    <option value="ballad" className="bg-cyber-dark text-neon-primary">Ballad</option>
+                    <option value="coral" className="bg-cyber-dark text-neon-tertiary">Coral</option>
+                    <option value="echo" className="bg-cyber-dark text-neon-primary">Echo</option>
+                    <option value="marin" className="bg-cyber-dark text-neon-primary">Marin</option>
+                    <option value="sage" className="bg-cyber-dark text-neon-secondary">Sage</option>
+                    <option value="shimmer" className="bg-cyber-dark text-neon-primary">Shimmer</option>
+                    <option value="verse" className="bg-cyber-dark text-neon-primary">Verse</option>
+                  </>
+                )}
+                {currentProvider === 'gemini' && (
+                  <>
+                    {/* Updated Gemini voices */}
+                    <option value="Aoede" className="bg-cyber-dark text-neon-tertiary">Aoede</option>
+                    <option value="Kore" className="bg-cyber-dark text-neon-secondary">Kore</option>
+                    <option value="Leda" className="bg-cyber-dark text-neon-primary">Leda</option>
+                    <option value="Zephyr" className="bg-cyber-dark text-neon-primary">Zephyr</option>
+                    <option value="Callirrhoe" className="bg-cyber-dark text-neon-primary">Callirrhoe</option>
+                    <option value="Autonoe" className="bg-cyber-dark text-neon-primary">Autonoe</option>
+                    <option value="Despina" className="bg-cyber-dark text-neon-primary">Despina</option>
+                    <option value="Erinome" className="bg-cyber-dark text-neon-primary">Erinome</option>
+                    <option value="Laomedeia" className="bg-cyber-dark text-neon-primary">Laomedeia</option>
+                    <option value="Achernar" className="bg-cyber-dark text-neon-primary">Achernar</option>
+                    <option value="Gacrux" className="bg-cyber-dark text-neon-primary">Gacrux</option>
+                    <option value="Pulcherrima" className="bg-cyber-dark text-neon-primary">Pulcherrima</option>
+                    <option value="Vindemiatrix" className="bg-cyber-dark text-neon-primary">Vindemiatrix</option>
+                    <option value="Sulafat" className="bg-cyber-dark text-neon-primary">Sulafat</option>
+                    {/* Original shorter list for reference, can be removed if new list is complete */}
+                    {/* <option value="Puck" className="bg-cyber-dark text-neon-primary">Puck</option> */}
+                    {/* <option value="Charon" className="bg-cyber-dark text-neon-primary">Charon</option> */}
+                    {/* <option value="Fenrir" className="bg-cyber-dark text-neon-primary">Fenrir</option> */}
+                    {/* <option value="Orus" className="bg-cyber-dark text-neon-primary">Orus</option> */}
+                  </>
+                )}
+              </select>
+            </div>
           </div>
         </div>
       </div>
