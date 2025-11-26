@@ -12,7 +12,7 @@ import { useUnifiedAudioCapture } from "../hooks/useUnifiedAudioCapture"; // New
 import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js"; // New OpenAI provider
 import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js"; // New Gemini provider
 import { useAudioExport } from "../hooks/useAudioExport";
-import { usePcmPlayer } from "../hooks/usePcmPlayer.js"; 
+import { usePcmPlayer } from "../hooks/usePcmPlayer.js";
 import { usePcmStreamer } from "../hooks/usePcmStreamer.js"; // Import PCM streamer hook
 
 export default function App() {
@@ -21,7 +21,7 @@ export default function App() {
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
   const [currentProviderType, setCurrentProviderType] = useState('openai'); // 'openai' or 'gemini'
-  
+
   // Track processed events to prevent duplicates
   const processedEventsRef = useRef(new Set());
 
@@ -29,7 +29,7 @@ export default function App() {
   const audioRecording = useAudioRecording(); // Legacy OpenAI recording (still used for real-time response capture)
   const unifiedAudioCapture = useUnifiedAudioCapture(); // New unified capture system
   const audioExport = useAudioExport();
-  const pcmPlayer = usePcmPlayer(); 
+  const pcmPlayer = usePcmPlayer();
   const pcmStreamer = usePcmStreamer(); // Instantiate PCM streamer for user input
 
   // Instantiate providers - only one will be effectively used based on currentProviderType
@@ -48,11 +48,11 @@ export default function App() {
       pcmPlayer.ensureAudioContext();
     }
   }
-  
+
   function handleBackToCharacterSelect() {
     setIsCharacterSelectionMode(true);
   }
-  
+
   async function startSession() {
     try {
       processedEventsRef.current.clear();
@@ -71,60 +71,60 @@ export default function App() {
           unifiedAudioCapture.setupWebRTCCapture(stream);
         });
       } else if (currentProviderType === 'gemini') {
-      // Clear any previous audio data
-      unifiedAudioCapture.clearAudioData();
-      
-      await geminiSession.startSession(
-        selectedCharacter,
-        (geminiEvent) => { // onEventReceived
-          console.log('[App.jsx] Gemini Event Received:', geminiEvent);
-          const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}-${Math.random()}`;
-          if (processedEventsRef.current.has(eventId)) {
-            return;
-          }
-          processedEventsRef.current.add(eventId);
-          setEvents((prev) => [geminiEvent, ...prev]);
+        // Clear any previous audio data
+        unifiedAudioCapture.clearAudioData();
 
-          if (geminiEvent.type === 'gemini_generation_start') {
-            console.log('[App.jsx] Gemini generation started, beginning response capture.');
-            unifiedAudioCapture.startResponseCapture();
-          } else if (geminiEvent.type === 'gemini_generation_complete') {
-            console.log('[App.jsx] Gemini generation complete, finalizing unified audio capture.');
-            pcmPlayer.finalizeCurrentResponse();
-            unifiedAudioCapture.finalizePcmResponse();
-          }
-        },
-        (audioChunkMessage) => { // onAudioChunkReceived
-          if (audioChunkMessage && audioChunkMessage.type === 'gemini_audio_chunk' && audioChunkMessage.data) {
-            console.log('[App.jsx] Received Gemini Audio Chunk, passing to player and unified capture:', audioChunkMessage.data.length);
-            
-            // Decode the base64 PCM data to add to unified capture
-            try {
-              const byteString = atob(audioChunkMessage.data);
-              const byteArray = new Uint8Array(byteString.length);
-              for (let i = 0; i < byteString.length; i++) {
-                byteArray[i] = byteString.charCodeAt(i);
-              }
-              const pcm16BitView = new Int16Array(byteArray.buffer);
-              const float32Array = new Float32Array(pcm16BitView.length);
-              for (let i = 0; i < pcm16BitView.length; i++) {
-                float32Array[i] = pcm16BitView[i] / 32768.0;
-              }
-              
-              // Add to unified capture
-              unifiedAudioCapture.addPcmChunk(float32Array);
-            } catch (error) {
-              console.error('[App.jsx] Error processing PCM chunk for unified capture:', error);
+        await geminiSession.startSession(
+          selectedCharacter,
+          (geminiEvent) => { // onEventReceived
+            console.log('[App.jsx] Gemini Event Received:', geminiEvent);
+            const eventId = geminiEvent.event_id || `${geminiEvent.type}-${geminiEvent.timestamp || Date.now()}-${Math.random()}`;
+            if (processedEventsRef.current.has(eventId)) {
+              return;
             }
-            
-            // Still send to PCM player for real-time playback
-            pcmPlayer.addAudioChunk(audioChunkMessage.data);
-          } else {
-            console.warn('[App.jsx] Received malformed audio chunk message:', audioChunkMessage);
+            processedEventsRef.current.add(eventId);
+            setEvents((prev) => [geminiEvent, ...prev]);
+
+            if (geminiEvent.type === 'gemini_generation_start') {
+              console.log('[App.jsx] Gemini generation started, beginning response capture.');
+              unifiedAudioCapture.startResponseCapture();
+            } else if (geminiEvent.type === 'gemini_generation_complete') {
+              console.log('[App.jsx] Gemini generation complete, finalizing unified audio capture.');
+              pcmPlayer.finalizeCurrentResponse();
+              unifiedAudioCapture.finalizePcmResponse();
+            }
+          },
+          (audioChunkMessage) => { // onAudioChunkReceived
+            if (audioChunkMessage && audioChunkMessage.type === 'gemini_audio_chunk' && audioChunkMessage.data) {
+              console.log('[App.jsx] Received Gemini Audio Chunk, passing to player and unified capture:', audioChunkMessage.data.length);
+
+              // Decode the base64 PCM data to add to unified capture
+              try {
+                const byteString = atob(audioChunkMessage.data);
+                const byteArray = new Uint8Array(byteString.length);
+                for (let i = 0; i < byteString.length; i++) {
+                  byteArray[i] = byteString.charCodeAt(i);
+                }
+                const pcm16BitView = new Int16Array(byteArray.buffer);
+                const float32Array = new Float32Array(pcm16BitView.length);
+                for (let i = 0; i < pcm16BitView.length; i++) {
+                  float32Array[i] = pcm16BitView[i] / 32768.0;
+                }
+
+                // Add to unified capture
+                unifiedAudioCapture.addPcmChunk(float32Array);
+              } catch (error) {
+                console.error('[App.jsx] Error processing PCM chunk for unified capture:', error);
+              }
+
+              // Still send to PCM player for real-time playback
+              pcmPlayer.addAudioChunk(audioChunkMessage.data);
+            } else {
+              console.warn('[App.jsx] Received malformed audio chunk message:', audioChunkMessage);
+            }
           }
-        }
-      );
-    }
+        );
+      }
     } catch (error) {
       console.error("Failed to start session:", error);
       // Show error to user
@@ -171,8 +171,8 @@ export default function App() {
       pcmPlayer.clearCurrentResponseAccumulator(); // Clear for new response based on voice input
       console.log('[App.jsx] Starting user audio stream for Gemini...');
       pcmStreamer.startStreaming((base64PcmChunk) => {
-        if (geminiSession.isSessionActive) { 
-          geminiSession.sendAudioData(base64PcmChunk); 
+        if (geminiSession.isSessionActive) {
+          geminiSession.sendAudioData(base64PcmChunk);
         }
       });
     }
@@ -200,20 +200,20 @@ export default function App() {
           console.log(`[DEBUG] Duplicate event detected and skipped for all processing: ${eventId}`);
           return; // Return early for duplicates, preventing all further processing
         }
-        
+
         // Add to processed events set (for UI and to prevent re-triggering recording logic)
         processedEventsRef.current.add(eventId);
-        
+
         // Add the event to UI state
         setEvents((prev) => [eventData, ...prev]);
         console.log(`[DEBUG] Added new UI event: ${eventData.type} (${eventId})`);
-        
+
         // Handle specific event types for recording, only for non-duplicates
         if (eventData.type === "response.audio_transcript.delta" && !audioRecording.isRecordingCurrentResponse) {
           console.log("[DEBUG] First audio transcript delta - starting audio recording");
           audioRecording.startRecordingResponse();
         }
-        
+
         if (eventData.type === "response.done") {
           console.log("[DEBUG] Response done event - stopping audio recording");
           audioRecording.stopRecordingResponse();
@@ -227,7 +227,7 @@ export default function App() {
         openaiSession.setIsSessionActive(true); // Corrected: openaiSession
         setEvents([]); // Clear UI events
         processedEventsRef.current.clear(); // Clear processed event IDs on new session
-        
+
         setTimeout(() => {
           console.log("Session fully initialized");
           openaiSession.isSessionInitializedRef.current = true; // Corrected: openaiSession
@@ -258,18 +258,16 @@ export default function App() {
         <button
           onClick={() => setCurrentProviderType('openai')}
           disabled={currentSession.isSessionActive}
-          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${
-            currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-          } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+            } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           OpenAI
         </button>
         <button
           onClick={() => setCurrentProviderType('gemini')}
           disabled={currentSession.isSessionActive}
-          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${
-            currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-          } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
+            } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           Gemini
         </button>
@@ -288,7 +286,7 @@ export default function App() {
             <div className="terminal-scan-line"></div>
           </div>
           <div className="absolute inset-0 bg-gradient-radial from-cyber-dark via-cyber-dark to-black opacity-80 pointer-events-none"></div>
-          
+
           {/* Fast flickering particles in the background */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none z-20">
             {Array.from({ length: 30 }).map((_, i) => (
@@ -306,7 +304,7 @@ export default function App() {
               />
             ))}
           </div>
-          
+
           <nav className="absolute top-0 left-0 right-0 h-20 sm:h-20 md:h-24 flex items-center z-10">
             <div className="terminal-header flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 w-full m-2 sm:m-4 pb-2 border-0 border-b border-solid border-neon-primary">
               <div className="flex items-center gap-2 sm:gap-4 order-1 sm:order-1">
@@ -323,33 +321,33 @@ export default function App() {
               <div className="order-3 sm:order-2">
                 <ProviderToggle />
               </div>
-              
+
               {/* Logo in header */}
               <div className="h-10 sm:h-12 lg:h-14 relative order-2 sm:order-3">
-                <img 
-                  src={logo} 
-                  alt="Vox Machina" 
+                <img
+                  src={logo}
+                  alt="Vox Machina"
                   className="h-full w-auto mix-blend-screen"
-                  style={{ 
+                  style={{
                     filter: 'drop-shadow(0 0 6px rgba(10, 255, 255, 0.6))',
                   }}
                 />
               </div>
             </div>
           </nav>
-          
+
           {/* Film grain effect - more visible */}
           <div className="fixed inset-0 z-0 pointer-events-none opacity-40 mix-blend-overlay">
             <div className="absolute inset-0 bg-noise animate-noise"></div>
           </div>
-          
+
           {/* Additional scan lines */}
           <div className="fixed inset-0 z-0 pointer-events-none">
             <div className="absolute inset-0 bg-scan-lines"></div>
           </div>
-          
+
           <main className="absolute top-20 sm:top-20 md:top-24 left-0 right-0 bottom-0 flex items-stretch justify-center">
-            <section className="flex flex-col w-full max-w-7xl mx-auto px-2 sm:px-4 h-full overflow-y-auto">
+            <section className="flex flex-col w-full max-w-7xl mx-auto px-2 sm:px-4 h-full overflow-hidden">
               {/* DATA STREAM */}
               <div className="terminal-panel w-full h-24 sm:h-28 md:h-32 mb-2 sm:mb-4 overflow-hidden flex-shrink-0">
                 <div className="terminal-header flex items-center justify-between">
@@ -367,7 +365,7 @@ export default function App() {
                   <EventLog events={events} />
                 </div>
               </div>
-              
+
               {/* AI Audio Waveform Visualizer or Character Selection */}
               <div className="terminal-panel w-full flex-grow mb-2 sm:mb-4 min-h-0">
                 <div className="terminal-header flex items-center justify-between">
@@ -400,39 +398,37 @@ export default function App() {
                   ) : currentProviderType === 'openai' && currentSession.audioElement.current && currentSession.audioElement.current.srcObject ? (
                     // OpenAI audio visualization (existing logic)
                     <>
-                      <WaveformVisualizer 
-                        audioStream={currentSession.audioElement.current.srcObject} 
+                      <WaveformVisualizer
+                        audioStream={currentSession.audioElement.current.srcObject}
                         isMicMuted={currentSession.isMicMuted}
                         toggleMicMute={currentSession.toggleMicMute}
                       />
-                      
+
                       {/* Unified Export buttons for OpenAI */}
                       <div className="absolute top-4 right-4 flex gap-2">
                         <button
                           onClick={() => audioExport.exportLastAudio(unifiedAudioCapture.lastResponseAudio, selectedCharacter)}
                           disabled={audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio}
-                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           title="Export last AI response"
                         >
                           <Save size={16} className="text-neon-secondary" />
                           <span className="text-neon-secondary">EXPORT LAST</span>
                         </button>
-                        
+
                         <button
                           onClick={() => audioExport.exportFullAudio(unifiedAudioCapture.fullConversationAudio, selectedCharacter)}
                           disabled={audioExport.isExporting || !unifiedAudioCapture.fullConversationAudio}
-                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting || !unifiedAudioCapture.fullConversationAudio ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${audioExport.isExporting || !unifiedAudioCapture.fullConversationAudio ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           title="Export full conversation"
                         >
                           <Download size={16} className="text-neon-primary" />
                           <span className="text-neon-primary">EXPORT FULL</span>
                         </button>
                       </div>
-                      
+
                       {/* Export status message */}
                       {audioExport.exportStatus && (
                         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-cyber-dark border border-neon-primary px-4 py-2 rounded-sm text-neon-primary text-sm">
@@ -444,7 +440,7 @@ export default function App() {
                     // Gemini audio visualization
                     <>
                       {pcmPlayer.analyserNode ? (
-                        <WaveformVisualizer 
+                        <WaveformVisualizer
                           analyserNode={pcmPlayer.analyserNode}
                         />
                       ) : (
@@ -452,21 +448,20 @@ export default function App() {
                           Gemini Audio Session Active (Initializing Visualizer...)
                         </div>
                       )}
-                      
+
                       {/* Unified Export buttons for Gemini */}
                       <div className="absolute top-4 right-4 flex gap-2">
                         <button
                           onClick={() => audioExport.exportWavAudio(unifiedAudioCapture.lastResponseAudio, 'last', selectedCharacter)}
                           disabled={audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio}
-                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${audioExport.isExporting || !unifiedAudioCapture.lastResponseAudio ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           title="Export last AI response"
                         >
                           <Save size={16} className="text-neon-secondary" />
                           <span className="text-neon-secondary">EXPORT LAST</span>
                         </button>
-                        
+
                         <button
                           onClick={() => {
                             const fullConversationWav = unifiedAudioCapture.getFullConversationPcmAsWav();
@@ -475,16 +470,15 @@ export default function App() {
                             }
                           }}
                           disabled={audioExport.isExporting || !unifiedAudioCapture.getFullConversationPcmAsWav()}
-                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${
-                            audioExport.isExporting || !unifiedAudioCapture.getFullConversationPcmAsWav() ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
+                          className={`terminal-button flex items-center gap-2 px-3 py-2 ${audioExport.isExporting || !unifiedAudioCapture.getFullConversationPcmAsWav() ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                           title="Export full conversation"
                         >
                           <Download size={16} className="text-neon-primary" />
                           <span className="text-neon-primary">EXPORT FULL</span>
                         </button>
                       </div>
-                      
+
                       {/* Export status message */}
                       {audioExport.exportStatus && (
                         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-cyber-dark border border-neon-primary px-4 py-2 rounded-sm text-neon-primary text-sm">
@@ -512,12 +506,11 @@ export default function App() {
                             </div>
                             <div className="flex justify-between">
                               <span>TEMPERATURE:</span>
-                              <span className={`${
-                                selectedCharacter.temperature < 0.4 ? "text-blue-400" :
-                                selectedCharacter.temperature < 0.7 ? "text-cyan-400" :
-                                selectedCharacter.temperature < 1.0 ? "text-yellow-400" :
-                                "text-red-400"
-                              }`}>{selectedCharacter.temperature.toFixed(2)}</span>
+                              <span className={`${selectedCharacter.temperature < 0.4 ? "text-blue-400" :
+                                  selectedCharacter.temperature < 0.7 ? "text-cyan-400" :
+                                    selectedCharacter.temperature < 1.0 ? "text-yellow-400" :
+                                      "text-red-400"
+                                }`}>{selectedCharacter.temperature.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>PERSONA TYPE:</span>
@@ -539,7 +532,7 @@ export default function App() {
                   ) : null}
                 </div>
               </div>
-              
+
               {/* Command Interface */}
               <div className="terminal-panel w-full h-24 sm:h-28 md:h-32 flex-shrink-0">
                 <div className="terminal-header flex items-center justify-between">
@@ -554,7 +547,7 @@ export default function App() {
                   <SessionControls
                     startSession={startSession}
                     stopSession={stopSession}
-                    sendClientEvent={sendClientEvent} 
+                    sendClientEvent={sendClientEvent}
                     sendTextMessage={sendTextMessage}
                     events={events}
                     isSessionActive={currentSession.isSessionActive}
