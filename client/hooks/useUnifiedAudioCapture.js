@@ -153,6 +153,17 @@ export function useUnifiedAudioCapture() {
     console.log('[UnifiedAudioCapture] All audio data cleared');
   }, []);
 
+  // Get WebRTC audio blob directly from ref (for when state might not be updated yet)
+  const getWebRTCAudioBlob = useCallback(() => {
+    if (audioChunksRef.current && audioChunksRef.current.length > 0) {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      console.log('[UnifiedAudioCapture] getWebRTCAudioBlob returning blob:', audioBlob.size);
+      return audioBlob;
+    }
+    console.log('[UnifiedAudioCapture] getWebRTCAudioBlob: no chunks available');
+    return null;
+  }, []);
+
   return {
     // State
     fullConversationAudio,
@@ -161,6 +172,7 @@ export function useUnifiedAudioCapture() {
 
     // OpenAI WebRTC methods
     setupWebRTCCapture,
+    getWebRTCAudioBlob,
 
     // Gemini PCM methods
     addPcmChunk,

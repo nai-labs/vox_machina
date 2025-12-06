@@ -44,10 +44,10 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
       // Ensure fftSize and smoothingTimeConstant from settings are applied if possible,
       // though the provided node might already be configured.
       if (localAnalyserRef.current.fftSize !== settings.fftSize) {
-        try { localAnalyserRef.current.fftSize = settings.fftSize; } catch(e) { console.warn("Could not set fftSize on provided analyser", e)}
+        try { localAnalyserRef.current.fftSize = settings.fftSize; } catch (e) { console.warn("Could not set fftSize on provided analyser", e) }
       }
       if (localAnalyserRef.current.smoothingTimeConstant !== settings.smoothingTimeConstant) {
-        try {localAnalyserRef.current.smoothingTimeConstant = settings.smoothingTimeConstant; } catch(e) { console.warn("Could not set smoothingTimeConstant on provided analyser", e)}
+        try { localAnalyserRef.current.smoothingTimeConstant = settings.smoothingTimeConstant; } catch (e) { console.warn("Could not set smoothingTimeConstant on provided analyser", e) }
       }
     } else if (audioStream) { // Existing logic for OpenAI (MediaStream)
       console.log("[WaveformVisualizer] Using audioStream to create AnalyserNode.");
@@ -87,10 +87,10 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
       if (canvasRef.current) {
         const container = canvasRef.current.parentElement;
         if (container) {
-            const { width, height } = container.getBoundingClientRect();
-            setCanvasSize({ width, height });
-            canvasRef.current.width = width;
-            canvasRef.current.height = height;
+          const { width, height } = container.getBoundingClientRect();
+          setCanvasSize({ width, height });
+          canvasRef.current.width = width;
+          canvasRef.current.height = height;
         }
       }
     };
@@ -108,7 +108,7 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
     const ctx = canvas.getContext('2d');
     const bufferLength = localAnalyserRef.current.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
-    
+
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
     const maxRadius = Math.min(centerX, centerY) * 0.85;
@@ -116,34 +116,34 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
     const draw = (currentTime) => {
       animationRef.current = requestAnimationFrame(draw); // Request next frame first
       frameCountRef.current++;
-      
+
       if (currentTime - lastFrameTimeRef.current < 1000 / settings.targetFPS) {
         return;
       }
-      
+
       if (settings.skipFrames > 0 && frameCountRef.current % (settings.skipFrames + 1) !== 0) {
         return;
       }
-      
+
       lastFrameTimeRef.current = currentTime;
-      
+
       ctx.fillStyle = 'rgba(10, 14, 23, 0.3)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
+
       if (!settings.simplifiedEffects) {
         drawCyberpunkGrid(ctx, canvas.width, canvas.height);
       }
-      
+
       localAnalyserRef.current.getByteFrequencyData(dataArray);
       rotationRef.current += settings.simplifiedEffects ? 0.001 : 0.002;
       drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius);
-      
+
       if (!settings.simplifiedEffects) {
         drawScanLines(ctx, canvas.width, canvas.height); // Removed centerX, centerY as they were unused
         drawWatermark(ctx, canvas.width, canvas.height);
       }
     };
-    
+
     function drawCyberpunkGrid(ctx, width, height) {
       const gridSize = 40;
       const gridOpacity = 0.05;
@@ -156,13 +156,13 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
     }
-    
+
     function drawScanLines(ctx, width, height) {
       const scanLineY = (Date.now() % 5000) / 5000 * height;
       ctx.fillStyle = 'rgba(10, 255, 255, 0.1)';
       ctx.fillRect(0, scanLineY, width, 1);
     }
-    
+
     function drawWatermark(ctx, width, height) {
       ctx.save();
       ctx.globalAlpha = 0.03;
@@ -172,27 +172,27 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
       ctx.fillText('VOX MACHINA', width / 2, height - 15);
       ctx.restore();
     }
-    
+
     function drawRadialVisualization(ctx, dataArray, centerX, centerY, maxRadius) {
       const numBars = settings.simplifiedEffects ? Math.floor(dataArray.length / 4) : Math.floor(dataArray.length / 2);
       const angleStep = (Math.PI * 2) / numBars;
       const baseRadius = maxRadius * 0.3;
-      
+
       if (!settings.simplifiedEffects) {
         ctx.strokeStyle = 'rgba(10, 255, 255, 0.15)';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2); ctx.stroke();
       }
-      
+
       ctx.strokeStyle = 'rgba(0, 170, 255, 0.2)';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2); ctx.stroke();
-      
+
       if (!settings.simplifiedEffects) {
         ctx.shadowBlur = 10;
         ctx.shadowColor = 'rgba(10, 255, 255, 0.5)';
       }
-      
+
       for (let i = 0; i < numBars; i++) {
         const dataIndex = settings.simplifiedEffects ? i * 4 : i * 2;
         const amplitude = dataArray[dataIndex] / 255;
@@ -202,7 +202,7 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
         const startY = centerY + Math.sin(angle) * baseRadius;
         const endX = centerX + Math.cos(angle) * barHeight;
         const endY = centerY + Math.sin(angle) * barHeight;
-        
+
         if (settings.simplifiedEffects) {
           ctx.strokeStyle = `rgba(10, 255, 255, ${0.4 + amplitude * 0.4})`;
           ctx.lineWidth = 1 + amplitude;
@@ -213,15 +213,15 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
           ctx.strokeStyle = gradient;
           ctx.lineWidth = 1 + amplitude * 2;
         }
-        
+
         ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY); ctx.stroke();
-        
+
         if (!settings.simplifiedEffects && amplitude > 0.6) {
           ctx.fillStyle = 'rgba(10, 255, 255, 0.8)';
           ctx.beginPath(); ctx.arc(endX, endY, 1 + amplitude * 2, 0, Math.PI * 2); ctx.fill();
         }
       }
-      
+
       ctx.fillStyle = settings.simplifiedEffects ? 'rgba(10, 255, 255, 0.2)' : 'rgba(10, 255, 255, 0.4)';
       ctx.beginPath(); ctx.arc(centerX, centerY, baseRadius * 0.6, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
@@ -235,31 +235,30 @@ export default function WaveformVisualizer({ audioStream, analyserNode, isMicMut
 
   return (
     <div className="waveform-container w-full h-full relative">
-      <canvas 
-        ref={canvasRef} 
+      <canvas
+        ref={canvasRef}
         className="w-full h-full rounded"
       />
-      
+
       {isSafari() && (
         <div className="absolute top-2 left-2 text-xs text-neon-secondary opacity-50">
           SAFARI OPTIMIZED
         </div>
       )}
-      
+
       {toggleMicMute && ( // Only show mic mute if toggleMicMute is provided (relevant for OpenAI input stream viz)
-        <button 
+        <button
           onClick={toggleMicMute}
-          className={`absolute bottom-4 right-4 terminal-button p-2 z-30 transition-all duration-300 ${
-            isMicMuted 
-              ? "bg-cyber-dark border-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" 
+          className={`absolute bottom-6 right-6 terminal-button p-3 z-30 transition-all duration-300 ${isMicMuted
+              ? "bg-cyber-dark border-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]"
               : "bg-cyber-dark border-neon-primary shadow-neon-glow"
-          }`}
+            }`}
           title={isMicMuted ? "Unmute Microphone" : "Mute Microphone"}
         >
           {isMicMuted ? (
-            <MicOff size={20} className="text-red-500" />
+            <MicOff size={28} className="text-red-500" />
           ) : (
-            <Mic size={20} className="text-neon-primary" />
+            <Mic size={28} className="text-neon-primary" />
           )}
         </button>
       )}

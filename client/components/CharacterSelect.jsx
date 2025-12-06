@@ -5,7 +5,11 @@ import { PhoneCall, Zap, Thermometer, Volume2 } from "react-feather";
 // User, Heart, MessageCircle, Mic, Book, Terminal are not used in the current snippet,
 // but if they were, they'd be imported similarly.
 
-export default function CharacterSelect({ onSelectCharacter, currentProvider }) { // Added currentProvider prop
+export default function CharacterSelect({
+  onSelectCharacter,
+  currentProvider,
+  sessionHistoryPanel // Optional session history panel component
+}) { // Added currentProvider prop
   const [selectedCharacterId, setSelectedCharacterId] = useState("bill");
   const [temperature, setTemperature] = useState(0.8); // Initial default, will be adjusted by useEffect
   const [selectedVoice, setSelectedVoice] = useState(null);
@@ -126,6 +130,13 @@ export default function CharacterSelect({ onSelectCharacter, currentProvider }) 
           ))}
         </div>
       </div>
+
+      {/* Session History Panel - if provided */}
+      {sessionHistoryPanel && (
+        <div className="w-full max-w-6xl mb-2">
+          {sessionHistoryPanel}
+        </div>
+      )}
 
       {/* Neural Voice Parameters Panel - fixed at bottom */}
       <div className="terminal-panel w-full max-w-6xl p-2 flex-shrink-0">

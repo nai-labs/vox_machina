@@ -7,9 +7,12 @@ import WaveformVisualizer from "./WaveformVisualizer";
 import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
 import ProviderToggle from "./ProviderToggle";
+import CharacterPortrait from "./CharacterPortrait";
+import SessionHistoryPanel from "./SessionHistoryPanel";
 import { Download, Cpu, Terminal, Zap, Activity, User, Save, Settings } from "react-feather"; // Added Settings
 import { useAudioRecording } from "../hooks/useAudioRecording";
 import { useUnifiedAudioCapture } from "../hooks/useUnifiedAudioCapture";
+import { useSessionHistory } from "../hooks/useSessionHistory";
 import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js";
 import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js";
 import { useAudioExport } from "../hooks/useAudioExport";
@@ -22,9 +25,11 @@ export default function App() {
   const [isCharacterSelectionMode, setIsCharacterSelectionMode] = useState(true);
   const [showSplashScreen, setShowSplashScreen] = useState(true);
   const [currentProviderType, setCurrentProviderType] = useState('openai'); // 'openai' or 'gemini'
+  const [intensityLevel, setIntensityLevel] = useState(1); // Intensity level 1-10 for character portrait
 
   // Track processed events to prevent duplicates
   const processedEventsRef = useRef(new Set());
+  const sessionStartTimeRef = useRef(null); // Track when session started for duration calculation
 
   // Custom hooks
   const audioRecording = useAudioRecording(); // Legacy OpenAI recording (still used for real-time response capture)
@@ -32,6 +37,7 @@ export default function App() {
   const audioExport = useAudioExport();
   const pcmPlayer = usePcmPlayer();
   const pcmStreamer = usePcmStreamer(); // Instantiate PCM streamer for user input
+  const sessionHistory = useSessionHistory(); // Session history storage
 
   // Instantiate providers - only one will be effectively used based on currentProviderType
   const openaiSession = useOpenAISession();
@@ -58,6 +64,7 @@ export default function App() {
     try {
       processedEventsRef.current.clear();
       setEvents([]); // Clear UI events on new session start
+      sessionStartTimeRef.current = Date.now(); // Track session start time
 
       // Ensure AudioContext is active for Gemini before starting session,
       // as audio might come back immediately.
@@ -129,7 +136,47 @@ export default function App() {
     }
   }
 
-  function stopSession() {
+  async function stopSession() {
+    // Calculate session duration
+    const duration = sessionStartTimeRef.current
+      ? Math.round((Date.now() - sessionStartTimeRef.current) / 1000)
+      : 0;
+
+    // Get audio blob for saving (prefer full conversation)
+    let audioBlob = null;
+    if (currentProviderType === 'gemini') {
+      const wavBlob = unifiedAudioCapture.getFullConversationPcmAsWav();
+      console.log('[App.jsx] Gemini audio blob:', wavBlob?.size || 'null');
+      if (wavBlob && wavBlob.size > 0) audioBlob = wavBlob;
+    } else {
+      // Use getter function to get audio directly from ref (more reliable than state)
+      const webrtcBlob = unifiedAudioCapture.getWebRTCAudioBlob();
+      console.log('[App.jsx] OpenAI audio blob from getter:', webrtcBlob?.size || 'null');
+      if (webrtcBlob && webrtcBlob.size > 0) {
+        audioBlob = webrtcBlob;
+      }
+    }
+
+    console.log('[App.jsx] Final audioBlob to save:', audioBlob?.size || 'null', 'duration:', duration);
+
+    // Save session to history if we have a character
+    if (selectedCharacter && duration > 5) { // Only save sessions longer than 5 seconds
+      try {
+        await sessionHistory.saveSession({
+          characterId: selectedCharacter.id,
+          characterName: selectedCharacter.name,
+          provider: currentProviderType,
+          duration: duration,
+          audioBlob: audioBlob
+        });
+        console.log(`[App.jsx] Session saved to history: ${selectedCharacter.name}, ${duration}s`);
+      } catch (error) {
+        console.error('[App.jsx] Failed to save session:', error);
+      }
+    }
+
+    sessionStartTimeRef.current = null;
+
     currentSession.stopSession(() => {
       audioRecording.stopRecording();
       audioRecording.clearAudioHistory();
@@ -149,6 +196,14 @@ export default function App() {
   }
 
   function sendTextMessage(message) {
+    // Parse /level[n]/ commands from the message directly
+    const levelMatch = message.match(/\/level(\d+)\//i);
+    if (levelMatch) {
+      const newLevel = Math.min(10, Math.max(1, parseInt(levelMatch[1], 10)));
+      console.log(`[App.jsx] Level command in text: /level${newLevel}/`);
+      setIntensityLevel(newLevel);
+    }
+
     if (currentProviderType === 'gemini') {
       pcmPlayer.clearCurrentResponseAccumulator(); // Clear any previous response audio before new input
     }
@@ -240,6 +295,46 @@ export default function App() {
   const handleSplashComplete = () => {
     setShowSplashScreen(false);
   };
+
+  // Parse /level[n]/ commands from events to update intensity
+  useEffect(() => {
+    if (events.length === 0) return;
+
+    // Check the most recent event for level commands
+    const latestEvent = events[0];
+    if (!latestEvent) return;
+
+    // Extract text content from different event formats
+    let textContent = '';
+
+    // Check event.data for stringified JSON or direct content
+    if (latestEvent.data) {
+      if (typeof latestEvent.data === 'string') {
+        textContent = latestEvent.data;
+      } else if (latestEvent.data.delta) {
+        textContent = latestEvent.data.delta;
+      } else if (latestEvent.data.text) {
+        textContent = latestEvent.data.text;
+      } else if (latestEvent.data.content) {
+        textContent = JSON.stringify(latestEvent.data.content);
+      }
+    }
+
+    // Also check event.text directly (for Gemini events)
+    if (latestEvent.text) {
+      textContent += ' ' + latestEvent.text;
+    }
+
+    // Parse /level[1-10]/ pattern
+    const levelMatch = textContent.match(/\/level(\d+)\//i);
+    if (levelMatch) {
+      const newLevel = Math.min(10, Math.max(1, parseInt(levelMatch[1], 10)));
+      if (newLevel !== intensityLevel) {
+        console.log(`[App.jsx] Level command detected: /level${newLevel}/`);
+        setIntensityLevel(newLevel);
+      }
+    }
+  }, [events, intensityLevel]);
 
 
 
@@ -366,15 +461,39 @@ export default function App() {
                 </div>
                 <div className="terminal-content h-full relative">
                   {!currentSession.isSessionActive && isCharacterSelectionMode ? (
-                    <CharacterSelect onSelectCharacter={handleSelectCharacter} currentProvider={currentProviderType} />
+                    <CharacterSelect
+                      onSelectCharacter={handleSelectCharacter}
+                      currentProvider={currentProviderType}
+                      sessionHistoryPanel={
+                        <SessionHistoryPanel
+                          sessions={sessionHistory.sessions}
+                          isLoading={sessionHistory.isLoading}
+                          onDeleteSession={sessionHistory.deleteSession}
+                          onClearAll={sessionHistory.clearAllSessions}
+                        />
+                      }
+                    />
                   ) : currentProviderType === 'openai' && currentSession.audioElement.current && currentSession.audioElement.current.srcObject ? (
                     // OpenAI audio visualization (existing logic)
                     <>
-                      <WaveformVisualizer
-                        audioStream={currentSession.audioElement.current.srcObject}
-                        isMicMuted={currentSession.isMicMuted}
-                        toggleMicMute={currentSession.toggleMicMute}
-                      />
+                      <div className="flex h-full gap-4 p-2">
+                        {/* Character Portrait */}
+                        <CharacterPortrait
+                          character={selectedCharacter}
+                          intensityLevel={intensityLevel}
+                          isActive={currentSession.isSessionActive}
+                          className="w-48 md:w-56 lg:w-64 h-auto self-center"
+                        />
+
+                        {/* Waveform Visualizer */}
+                        <div className="flex-1 relative">
+                          <WaveformVisualizer
+                            audioStream={currentSession.audioElement.current.srcObject}
+                            isMicMuted={currentSession.isMicMuted}
+                            toggleMicMute={currentSession.toggleMicMute}
+                          />
+                        </div>
+                      </div>
 
                       {/* Unified Export buttons for OpenAI */}
                       <div className="absolute top-4 right-4 flex gap-2">
@@ -411,15 +530,28 @@ export default function App() {
                   ) : currentProviderType === 'gemini' && currentSession.isSessionActive ? (
                     // Gemini audio visualization
                     <>
-                      {pcmPlayer.analyserNode ? (
-                        <WaveformVisualizer
-                          analyserNode={pcmPlayer.analyserNode}
+                      <div className="flex h-full gap-4 p-2">
+                        {/* Character Portrait */}
+                        <CharacterPortrait
+                          character={selectedCharacter}
+                          intensityLevel={intensityLevel}
+                          isActive={currentSession.isSessionActive}
+                          className="w-48 md:w-56 lg:w-64 h-auto self-center"
                         />
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-neon-secondary">
-                          Gemini Audio Session Active (Initializing Visualizer...)
+
+                        {/* Waveform Visualizer */}
+                        <div className="flex-1 relative">
+                          {pcmPlayer.analyserNode ? (
+                            <WaveformVisualizer
+                              analyserNode={pcmPlayer.analyserNode}
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-neon-secondary">
+                              Gemini Audio Session Active (Initializing Visualizer...)
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
 
                       {/* Unified Export buttons for Gemini */}
                       <div className="absolute top-4 right-4 flex gap-2">
