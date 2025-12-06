@@ -1,61 +1,26 @@
 import { useRef, useState, useCallback } from 'react';
+import { float32ToWavBlob, concatenateFloat32Arrays } from '../utils/audioUtils';
 
 export function useUnifiedAudioCapture() {
   const [fullConversationAudio, setFullConversationAudio] = useState(null);
   const [lastResponseAudio, setLastResponseAudio] = useState(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  
+
   // For OpenAI WebRTC streams
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  
+
   // For Gemini PCM data
   const fullConversationPcmRef = useRef([]);
   const lastResponsePcmRef = useRef(null);
   const isAccumulatingResponseRef = useRef(false);
-  
+
   // Common audio processing
   const sampleRate = 24000; // Standard rate for Gemini, OpenAI adapts
 
-  // Helper function to convert Float32Array PCM to WAV blob
+  // Wrapper for shared utility for backward compatibility with existing code
   const pcmToWavBlob = useCallback((float32PcmArray, sampleRateVal = sampleRate, numChannels = 1) => {
-    const pcm16 = new Int16Array(float32PcmArray.length);
-    for (let i = 0; i < float32PcmArray.length; i++) {
-      let s = Math.max(-1, Math.min(1, float32PcmArray[i]));
-      pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-
-    const buffer = new ArrayBuffer(44 + pcm16.length * 2);
-    const view = new DataView(buffer);
-
-    // Write WAV header
-    const writeString = (offset, string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-      }
-    };
-
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + pcm16.length * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRateVal, true);
-    view.setUint32(28, sampleRateVal * numChannels * 2, true);
-    view.setUint16(32, numChannels * 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, pcm16.length * 2, true);
-
-    // Write PCM data
-    let offset = 44;
-    for (let i = 0; i < pcm16.length; i++, offset += 2) {
-      view.setInt16(offset, pcm16[i], true);
-    }
-
-    return new Blob([view], { type: 'audio/wav' });
+    return float32ToWavBlob(float32PcmArray, sampleRateVal, numChannels);
   }, []);
 
   // OpenAI WebRTC stream setup
@@ -64,7 +29,7 @@ export function useUnifiedAudioCapture() {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -73,7 +38,7 @@ export function useUnifiedAudioCapture() {
           setFullConversationAudio(audioBlob);
         }
       };
-      
+
       mediaRecorder.onstop = () => {
         if (audioChunksRef.current.length > 0) {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
@@ -81,11 +46,11 @@ export function useUnifiedAudioCapture() {
           console.log('[UnifiedAudioCapture] WebRTC recording stopped, saved blob:', audioBlob.size);
         }
       };
-      
+
       mediaRecorder.start(1000); // Capture every second
       setIsCapturing(true);
       console.log('[UnifiedAudioCapture] WebRTC capture started');
-      
+
     } catch (err) {
       console.error('[UnifiedAudioCapture] Failed to set up WebRTC capture:', err);
     }
@@ -94,10 +59,10 @@ export function useUnifiedAudioCapture() {
   // Gemini PCM accumulation
   const addPcmChunk = useCallback((float32Array) => {
     if (!float32Array || float32Array.length === 0) return;
-    
+
     // Add to full conversation
     fullConversationPcmRef.current.push(float32Array.slice());
-    
+
     // Add to current response if we're accumulating
     if (isAccumulatingResponseRef.current) {
       if (!lastResponsePcmRef.current) {
@@ -105,7 +70,7 @@ export function useUnifiedAudioCapture() {
       }
       lastResponsePcmRef.current.push(float32Array.slice());
     }
-    
+
     console.log('[UnifiedAudioCapture] PCM chunk added. Full conversation chunks:', fullConversationPcmRef.current.length);
   }, []);
 
@@ -123,19 +88,19 @@ export function useUnifiedAudioCapture() {
       const totalLength = lastResponsePcmRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
       const concatenated = new Float32Array(totalLength);
       let offset = 0;
-      
+
       for (const chunk of lastResponsePcmRef.current) {
         concatenated.set(chunk, offset);
         offset += chunk.length;
       }
-      
+
       // Convert to WAV blob and store
       const wavBlob = pcmToWavBlob(concatenated);
       setLastResponseAudio(wavBlob);
-      
+
       console.log('[UnifiedAudioCapture] Response finalized. Samples:', totalLength, 'Blob size:', wavBlob.size);
     }
-    
+
     isAccumulatingResponseRef.current = false;
   }, [pcmToWavBlob]);
 
@@ -144,17 +109,17 @@ export function useUnifiedAudioCapture() {
     if (fullConversationPcmRef.current.length === 0) {
       return null;
     }
-    
+
     // Concatenate all PCM chunks
     const totalLength = fullConversationPcmRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
     const concatenated = new Float32Array(totalLength);
     let offset = 0;
-    
+
     for (const chunk of fullConversationPcmRef.current) {
       concatenated.set(chunk, offset);
       offset += chunk.length;
     }
-    
+
     return pcmToWavBlob(concatenated);
   }, [pcmToWavBlob]);
 
@@ -164,12 +129,12 @@ export function useUnifiedAudioCapture() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-    
+
     // Finalize any ongoing PCM response
     if (isAccumulatingResponseRef.current) {
       finalizePcmResponse();
     }
-    
+
     setIsCapturing(false);
     console.log('[UnifiedAudioCapture] Capture stopped');
   }, [finalizePcmResponse]);
@@ -180,11 +145,11 @@ export function useUnifiedAudioCapture() {
     fullConversationPcmRef.current = [];
     lastResponsePcmRef.current = null;
     isAccumulatingResponseRef.current = false;
-    
+
     setFullConversationAudio(null);
     setLastResponseAudio(null);
     setIsCapturing(false);
-    
+
     console.log('[UnifiedAudioCapture] All audio data cleared');
   }, []);
 
@@ -193,20 +158,20 @@ export function useUnifiedAudioCapture() {
     fullConversationAudio,
     lastResponseAudio,
     isCapturing,
-    
+
     // OpenAI WebRTC methods
     setupWebRTCCapture,
-    
+
     // Gemini PCM methods
     addPcmChunk,
     startResponseCapture,
     finalizePcmResponse,
     getFullConversationPcmAsWav,
-    
+
     // Common methods
     stopCapture,
     clearAudioData,
-    
+
     // Utility
     pcmToWavBlob
   };

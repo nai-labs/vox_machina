@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { decodeBase64PcmToFloat32 } from '../utils/audioUtils';
 
 export function usePcmPlayer() {
   const audioContextRef = useRef(null);
@@ -12,7 +13,7 @@ export function usePcmPlayer() {
   const currentResponseChunksRef = useRef([]); // Stores Float32Array chunks for the current response
   const lastCompleteResponseDataRef = useRef(null); // Stores the concatenated Float32Array of the last response
 
-  const sampleRate = 24000; 
+  const sampleRate = 24000;
 
   // Function to initialize/resume AudioContext on user gesture
   const ensureAudioContext = useCallback(() => {
@@ -34,13 +35,13 @@ export function usePcmPlayer() {
         console.log('[PcmPlayer] AudioContext resumed successfully.');
         setIsContextStarted(true);
         if (audioQueueRef.current.length > 0 && !isPlaying) {
-            console.log('[PcmPlayer] AudioContext resumed, calling playNextInQueue for queued items.');
-            playNextInQueue();
+          console.log('[PcmPlayer] AudioContext resumed, calling playNextInQueue for queued items.');
+          playNextInQueue();
         }
       }).catch(err => console.error('[PcmPlayer] Error resuming AudioContext:', err));
     } else if (audioContextRef.current.state === 'running') {
-        console.log('[PcmPlayer] AudioContext is already running.');
-        setIsContextStarted(true);
+      console.log('[PcmPlayer] AudioContext is already running.');
+      setIsContextStarted(true);
     }
   }, [isPlaying]); // Added isPlaying to dependencies
 
@@ -79,10 +80,10 @@ export function usePcmPlayer() {
     const currentTime = audioContextRef.current.currentTime;
     // If nextPlayTime is in the past, play immediately. Otherwise, schedule it.
     const playTime = Math.max(currentTime, nextPlayTimeRef.current);
-    
+
     source.start(playTime);
     console.log(`[PcmPlayer] Scheduled audio buffer to play at: ${playTime.toFixed(3)}s (AudioContext currentTime: ${currentTime.toFixed(3)}s). Next playTime will be: ${(playTime + audioBuffer.duration).toFixed(3)}s`);
-    
+
     nextPlayTimeRef.current = playTime + audioBuffer.duration;
 
     source.onended = () => {
@@ -90,14 +91,14 @@ export function usePcmPlayer() {
       // isPlaying should be managed carefully. If onended is called, this source is done.
       // The next call to playNextInQueue will set it true if it plays something.
       // If queue is empty after this, isPlaying will be set to false by the start of playNextInQueue.
-      playNextInQueue(); 
+      playNextInQueue();
     };
   }, []); // Removed isPlaying from dependencies, it causes re-creation of this function
 
 
   const addAudioChunk = useCallback((base64PcmData) => {
     console.log('[PcmPlayer] addAudioChunk called. Data length (base64):', base64PcmData ? base64PcmData.length : 'null');
-    ensureAudioContext(); 
+    ensureAudioContext();
 
     if (!base64PcmData) {
       console.warn('[PcmPlayer] addAudioChunk: No data provided.');
@@ -106,20 +107,8 @@ export function usePcmPlayer() {
 
     try {
       console.log('[PcmPlayer] addAudioChunk: Decoding base64...');
-      const byteString = atob(base64PcmData);
-      const byteArray = new Uint8Array(byteString.length);
-      for (let i = 0; i < byteString.length; i++) {
-        byteArray[i] = byteString.charCodeAt(i);
-      }
-      const pcmArrayBuffer = byteArray.buffer;
-      console.log('[PcmPlayer] addAudioChunk: Decoded to ArrayBuffer, length:', pcmArrayBuffer.byteLength);
-
-      const pcm16BitView = new Int16Array(pcmArrayBuffer);
-      const float32Array = new Float32Array(pcm16BitView.length);
-      for (let i = 0; i < pcm16BitView.length; i++) {
-        float32Array[i] = pcm16BitView[i] / 32768.0;
-      }
-      console.log('[PcmPlayer] addAudioChunk: Converted to Float32Array, length:', float32Array.length);
+      const float32Array = decodeBase64PcmToFloat32(base64PcmData);
+      console.log('[PcmPlayer] addAudioChunk: Decoded to Float32Array, length:', float32Array.length);
 
       if (!audioContextRef.current) {
         console.error('[PcmPlayer] addAudioChunk: AudioContext not initialized. Cannot create AudioBuffer.');
@@ -127,16 +116,16 @@ export function usePcmPlayer() {
       }
 
       const audioBuffer = audioContextRef.current.createBuffer(
-        1, 
-        float32Array.length, 
-        sampleRate 
+        1,
+        float32Array.length,
+        sampleRate
       );
       audioBuffer.copyToChannel(float32Array, 0);
       console.log(`[PcmPlayer] addAudioChunk: Created AudioBuffer. Duration: ${audioBuffer.duration.toFixed(3)}s`);
 
       // Accumulate data for "Save Last"
       // Make sure to store a copy, as float32Array might be reused or changed by Web Audio API internals
-      currentResponseChunksRef.current.push(float32Array.slice()); 
+      currentResponseChunksRef.current.push(float32Array.slice());
       // console.log(`[PcmPlayer] Stored chunk for current response. Total chunks: ${currentResponseChunksRef.current.length}`);
 
       audioQueueRef.current.push(audioBuffer);
@@ -144,15 +133,15 @@ export function usePcmPlayer() {
 
       if (audioContextRef.current.state === 'running') {
         if (!isPlaying) { // Only call playNextInQueue if not already in a play loop
-            console.log('[PcmPlayer] addAudioChunk: Context running and not playing, initiating playNextInQueue.');
-             // Reset nextPlayTimeRef if queue was empty to avoid large initial delay from previous session
-            if (audioQueueRef.current.length === 1 && nextPlayTimeRef.current < audioContextRef.current.currentTime - 1) { // if first item and last play was long ago
-                nextPlayTimeRef.current = audioContextRef.current.currentTime + 0.05; // Add small buffer
-                console.log(`[PcmPlayer] Resetting nextPlayTime for new audio sequence to: ${nextPlayTimeRef.current.toFixed(3)}s`);
-            }
-            playNextInQueue();
+          console.log('[PcmPlayer] addAudioChunk: Context running and not playing, initiating playNextInQueue.');
+          // Reset nextPlayTimeRef if queue was empty to avoid large initial delay from previous session
+          if (audioQueueRef.current.length === 1 && nextPlayTimeRef.current < audioContextRef.current.currentTime - 1) { // if first item and last play was long ago
+            nextPlayTimeRef.current = audioContextRef.current.currentTime + 0.05; // Add small buffer
+            console.log(`[PcmPlayer] Resetting nextPlayTime for new audio sequence to: ${nextPlayTimeRef.current.toFixed(3)}s`);
+          }
+          playNextInQueue();
         } else {
-            console.log('[PcmPlayer] addAudioChunk: Context running but already playing/scheduled. Buffer queued.');
+          console.log('[PcmPlayer] addAudioChunk: Context running but already playing/scheduled. Buffer queued.');
         }
       } else {
         console.log('[PcmPlayer] addAudioChunk: AudioContext not running. Chunk queued. Will play on context resume.');
@@ -194,7 +183,7 @@ export function usePcmPlayer() {
         concatenated.set(chunk, offset);
         offset += chunk.length;
       });
-      
+
       lastCompleteResponseDataRef.current = concatenated;
       console.log(`[PcmPlayer] Finalized current response audio. Total samples: ${totalLength}, Duration: approx ${(totalLength / sampleRate).toFixed(3)}s`);
       currentResponseChunksRef.current = []; // Clear for next response
@@ -218,10 +207,10 @@ export function usePcmPlayer() {
   }, []);
 
 
-  return { 
-    addAudioChunk, 
-    ensureAudioContext, 
-    isPlaying, 
+  return {
+    addAudioChunk,
+    ensureAudioContext,
+    isPlaying,
     isContextStarted,
     analyserNode: analyserNodeRef.current, // Expose AnalyserNode
     clearCurrentResponseAccumulator,

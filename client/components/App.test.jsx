@@ -16,8 +16,8 @@ vi.mock('../hooks/useAudioRecording', () => ({
   })
 }));
 
-vi.mock('../hooks/useWebRTCSession', () => ({
-  useWebRTCSession: () => ({
+vi.mock('../providers/openai/OpenAISessionProvider.js', () => ({
+  useOpenAISession: () => ({
     isSessionActive: false,
     setIsSessionActive: vi.fn(),
     dataChannel: null,
@@ -31,6 +31,63 @@ vi.mock('../hooks/useWebRTCSession', () => ({
     sendClientEvent: vi.fn(),
     sendTextMessage: vi.fn()
   })
+}));
+
+vi.mock('../providers/gemini/GeminiSessionProvider.js', () => ({
+  useGeminiSession: () => ({
+    isSessionActive: false,
+    setIsSessionActive: vi.fn(),
+    apiModelName: null,
+    isMicMuted: true,
+    audioElement: { current: null },
+    isSessionInitializedRef: { current: false },
+    toggleMicMute: vi.fn(),
+    startSession: vi.fn(),
+    stopSession: vi.fn(),
+    sendTextMessage: vi.fn(),
+    sendAudioData: vi.fn()
+  })
+}));
+
+vi.mock('../hooks/useUnifiedAudioCapture', () => ({
+  useUnifiedAudioCapture: () => ({
+    fullConversationAudio: null,
+    lastResponseAudio: null,
+    isCapturing: false,
+    setupWebRTCCapture: vi.fn(),
+    addPcmChunk: vi.fn(),
+    startResponseCapture: vi.fn(),
+    finalizePcmResponse: vi.fn(),
+    getFullConversationPcmAsWav: vi.fn(),
+    stopCapture: vi.fn(),
+    clearAudioData: vi.fn(),
+    pcmToWavBlob: vi.fn()
+  })
+}));
+
+vi.mock('../hooks/usePcmPlayer.js', () => ({
+  usePcmPlayer: () => ({
+    addAudioChunk: vi.fn(),
+    ensureAudioContext: vi.fn(),
+    isPlaying: false,
+    isContextStarted: false,
+    analyserNode: null,
+    clearCurrentResponseAccumulator: vi.fn(),
+    finalizeCurrentResponse: vi.fn(),
+    getLastResponsePcmData: vi.fn()
+  })
+}));
+
+vi.mock('../hooks/usePcmStreamer.js', () => ({
+  usePcmStreamer: () => ({
+    startStreaming: vi.fn(),
+    stopStreaming: vi.fn(),
+    isStreaming: false
+  })
+}));
+
+vi.mock('../utils/audioUtils', () => ({
+  decodeBase64PcmToFloat32: vi.fn(() => new Float32Array(0))
 }));
 
 vi.mock('../hooks/useAudioExport', () => ({

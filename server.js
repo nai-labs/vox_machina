@@ -1,54 +1,56 @@
-import express from "express";
-import fs from "fs";
-import { createServer as createViteServer } from "vite";
-import "dotenv/config";
-import path from "path";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
-import localtunnel from "localtunnel";
-import { WebSocketServer } from "ws"; // For creating the server
-import WebSocket from 'ws'; // For creating a WebSocket client connection
-import { GoogleGenerativeAI } from "@google/generative-ai"; // Added for Gemini (though direct WS might not use it)
-import { getCharacterPromptById } from "./server-utils.js";
-import { performAudioHealthCheck, getValidationSummary } from "./server/audioValidator.js";
+/**
+ * VOX MACHINA Server
+ * Main entry point for the Express server with WebSocket support
+ */
+import express from 'express';
+import fs from 'fs';
+import { createServer as createViteServer } from 'vite';
+import 'dotenv/config';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import localtunnel from 'localtunnel';
+import { WebSocketServer } from 'ws';
+
+// Import modular routes and handlers
+import tokenRouter from './server/routes/token.js';
+import audioRouter from './server/routes/audio.js';
+import { handleGeminiConnection } from './server/websocket/gemini.js';
 
 // Configure ffmpeg to use the static binary
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
 const app = express();
 const port = process.env.PORT || 3000;
-const openAIApiKey = process.env.OPENAI_API_KEY; // Renamed for clarity
-const geminiApiKey = process.env.GEMINI_API_KEY; // Added for Gemini
 
 // Validate API keys at startup
+const openAIApiKey = process.env.OPENAI_API_KEY;
+const geminiApiKey = process.env.GEMINI_API_KEY;
+
 if (!openAIApiKey) {
-  console.warn("⚠️  OPENAI_API_KEY not found in environment variables. OpenAI functionality will not work.");
+  console.warn('⚠️  OPENAI_API_KEY not found. OpenAI functionality will not work.');
 } else {
   console.log(`✅ OpenAI API key loaded: ${openAIApiKey.substring(0, 8)}...${openAIApiKey.slice(-4)}`);
-  // Basic format validation
   if (!openAIApiKey.startsWith('sk-') || openAIApiKey.length < 20) {
-    console.warn("⚠️  OpenAI API key format appears invalid. Expected format: sk-...");
+    console.warn('⚠️  OpenAI API key format appears invalid. Expected format: sk-...');
   }
 }
 
 if (!geminiApiKey) {
-  console.warn("⚠️  GEMINI_API_KEY not found in environment variables. Gemini functionality will not work.");
+  console.warn('⚠️  GEMINI_API_KEY not found. Gemini functionality will not work.');
 } else {
   console.log(`✅ Gemini API key loaded: ${geminiApiKey.substring(0, 8)}...${geminiApiKey.slice(-4)}`);
 }
 
-const DEFAULT_OPENAI_MODEL = "gpt-realtime";
-// TODO: Define default Gemini model
-// const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-live-001"; // Example from PDF
-
 // Configure Vite middleware for React client
 const vite = await createViteServer({
   server: { middlewareMode: true },
-  appType: "custom",
+  appType: 'custom',
 });
+
+// Middleware
 app.use(express.json({ limit: '50mb' }));
 
-// Add CORS headers
+// CORS headers
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -56,448 +58,75 @@ app.use((req, res, next) => {
   next();
 });
 
-// API route for token generation
-app.get("/token", async (req, res) => {
-  try {
-    // Get the character ID and parameters from the query
-    const characterId = req.query.character || 'default';
-    const temperature = parseFloat(req.query.temperature) || 0.8;
-    const voice = req.query.voice || null;
-    
-    console.log(`Received character ID: ${characterId}`);
-    console.log(`Temperature: ${temperature}`);
-    console.log(`Voice override: ${voice || 'none (using character default)'}`);
-    
-    // Get the character prompt from characters.json
-    const character = getCharacterPromptById(characterId);
-    
-    if (!character) {
-      console.error(`Character '${characterId}' not found`);
-      return res.status(404).json({ error: `Character '${characterId}' not found` });
-    }
-    
-    console.log(`Using character: ${character.name}`);
-    console.log(`Character prompt length: ${character.prompt.length} characters`);
-    
-    let apiModel = process.env.OPENAI_API_MODEL;
-    if (!apiModel) {
-      apiModel = DEFAULT_OPENAI_MODEL;
-      console.warn(`OPENAI_API_MODEL environment variable not set. Using default model: ${DEFAULT_OPENAI_MODEL}`);
-    } else {
-      console.log(`Using OpenAI model from environment variable: ${apiModel}`);
-    }
-    
-    const response = await fetch(
-      "https://api.openai.com/v1/realtime/sessions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openAIApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: apiModel,
-          voice: voice || character.voice || "sage",
-          temperature: temperature,
-          max_response_output_tokens: 4096,
-          instructions: character.prompt,
-        }),
-      },
-    );
+// API Routes
+app.use('/token', tokenRouter);
+app.use('/save-audio', audioRouter);
 
-    const data = await response.json();
-    
-    // Log the response for debugging
-    console.log("OpenAI Realtime Sessions API response:", JSON.stringify(data, null, 2));
-    
-    // Check if the response is successful and has the expected format
-    if (!response.ok) {
-      console.error("OpenAI API error:", data);
-      
-      // Provide specific error messages based on the error type
-      let errorMessage = "OpenAI API request failed";
-      if (data.error) {
-        if (data.error.code === 'invalid_api_key') {
-          errorMessage = `Invalid OpenAI API key. Please check your OPENAI_API_KEY environment variable. Error: ${data.error.message}`;
-        } else if (data.error.code === 'insufficient_quota') {
-          errorMessage = `Insufficient quota/credits for OpenAI API. Please add credits to your account. Error: ${data.error.message}`;
-        } else if (data.error.code === 'model_not_found') {
-          errorMessage = `Model not found. The Realtime API model may not be available for your account. Error: ${data.error.message}`;
-        } else {
-          errorMessage = `OpenAI API error (${data.error.code}): ${data.error.message}`;
-        }
-      }
-      
-      return res.status(response.status).json({ 
-        error: errorMessage,
-        openai_error: data.error,
-        status_code: response.status
-      });
-    }
-    
-    // Validate the response format
-    if (!data.client_secret) {
-      console.error("OpenAI API response missing client_secret:", data);
-      return res.status(500).json({ 
-        error: "OpenAI API response missing client_secret field",
-        response_keys: Object.keys(data),
-        full_response: data
-      });
-    }
-    
-    // Include the apiModel in the response
-    res.json({ ...data, apiModel });
-  } catch (error) {
-    console.error("Token generation error:", error);
-    res.status(500).json({ error: "Failed to generate token" });
-  }
-});
-
-// Endpoint to save audio data as webm
-app.post("/save-audio", async (req, res) => {
-  try {
-    console.log("Received save-audio request");
-    const { audioData, isRecentMessage, exportType, character, sourceFormat = 'webm' } = req.body;
-    
-    // Create outputs directory if it doesn't exist
-    const outputsDir = path.join(process.cwd(), 'outputs');
-    if (!fs.existsSync(outputsDir)) {
-      fs.mkdirSync(outputsDir, { recursive: true });
-      console.log("Created outputs directory:", outputsDir);
-    }
-    
-    // Create timestamp for filenames (more readable format)
-    const now = new Date();
-    const date = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    const time = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
-    const timestamp = `${date}_${time}`;
-    
-    // Handle the audio export
-    if (!audioData) {
-      console.log("No audio data provided in request");
-      return res.status(400).json({ error: "No audio data provided" });
-    }
-    
-    console.log("Audio data received, size:", audioData.length);
-    console.log("Export type:", exportType || "standard");
-    console.log("Source format:", sourceFormat);
-    console.log("Character:", character ? character.name : "unknown");
-    console.log("Is recent message only:", isRecentMessage ? "yes" : "no");
-    
-    // Validate base64 data format
-    let base64Data = audioData;
-    if (base64Data.indexOf('base64,') > -1) {
-      base64Data = base64Data.split('base64,')[1];
-    }
-    
-    // Validate base64 format
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
-      console.error("Invalid base64 data format");
-      return res.status(400).json({ error: "Invalid audio data format" });
-    }
-    
-    // Convert base64 data to buffer with error handling
-    let buffer;
-    try {
-      buffer = Buffer.from(base64Data, 'base64');
-      console.log("Buffer created, size:", buffer.length);
-      
-      // Validate minimum size (empty files are problematic)
-      if (buffer.length < 100) {
-        console.error("Audio buffer too small:", buffer.length);
-        return res.status(400).json({ error: "Audio data appears to be empty or corrupted" });
-      }
-      
-      // Check for very large files
-      if (buffer.length > 100 * 1024 * 1024) { // 100MB limit
-        console.warn("Very large audio file detected:", (buffer.length / 1024 / 1024).toFixed(1), "MB");
-      }
-    } catch (decodeError) {
-      console.error("Failed to decode base64 audio data:", decodeError);
-      return res.status(400).json({ error: "Failed to decode audio data" });
-    }
-    
-    // Create descriptive filename
-    let characterName = 'unknown-character';
-    if (character && character.name) {
-      // Clean character name for filename safety
-      characterName = character.name.toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-    }
-    
-    let exportTypeLabel;
-    if (exportType === 'last') {
-      exportTypeLabel = 'last-response';
-    } else if (exportType === 'full') {
-      exportTypeLabel = 'full-conversation';
-    } else {
-      exportTypeLabel = isRecentMessage ? 'recent-message' : 'ai-audio';
-    }
-    
-    // Determine source file extension based on format
-    const sourceExtension = sourceFormat === 'wav' ? 'wav' : 'webm';
-    const sourceFilename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.${sourceExtension}`;
-    const sourceFilePath = path.join(outputsDir, sourceFilename);
-    
-    // Write source file to disk with error handling
-    try {
-      fs.writeFileSync(sourceFilePath, buffer);
-      console.log(`${sourceExtension.toUpperCase()} file saved to:`, sourceFilePath);
-      
-      // Verify the file was written correctly
-      const writtenSize = fs.statSync(sourceFilePath).size;
-      if (writtenSize !== buffer.length) {
-        throw new Error(`File size mismatch: expected ${buffer.length}, got ${writtenSize}`);
-      }
-    } catch (writeError) {
-      console.error("Failed to write source file:", writeError);
-      return res.status(500).json({ error: `Failed to save source file: ${writeError.message}` });
-    }
-    
-    // Create mp3 filename
-    const mp3Filename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.mp3`;
-    const mp3FilePath = path.join(outputsDir, mp3Filename);
-    
-    // Create WAV fallback for WebM files if needed
-    let wavFilePath = null;
-    let wavFilename = null;
-    
-    if (sourceFormat === 'webm') {
-      wavFilename = `vox-machina_${characterName}_${exportTypeLabel}_${timestamp}.wav`;
-      wavFilePath = path.join(outputsDir, wavFilename);
-      
-      try {
-        await new Promise((resolve, reject) => {
-          ffmpeg(sourceFilePath)
-            .output(wavFilePath)
-            .audioCodec('pcm_s16le')
-            .audioFrequency(44100)
-            .audioChannels(1)
-            .on('end', () => {
-              console.log('WAV conversion finished:', wavFilePath);
-              resolve();
-            })
-            .on('error', (err) => {
-              console.warn('WAV conversion failed:', err.message);
-              resolve(); // Don't fail the whole operation
-            })
-            .run();
-        });
-      } catch (wavError) {
-        console.warn('WAV conversion error:', wavError);
-        // Continue without WAV file
-      }
-    }
-    
-    // Convert to mp3 using ffmpeg with silence removal
-    try {
-      await new Promise((resolve, reject) => {
-        const ffmpegCommand = ffmpeg(sourceFilePath)
-          .output(mp3FilePath)
-          .audioFilters('silenceremove=stop_periods=-1:stop_threshold=-50dB:stop_duration=1:start_threshold=-50dB:start_duration=0.1')
-          .audioCodec('libmp3lame')
-          .audioBitrate('128k')
-          .on('end', () => {
-            console.log('MP3 conversion finished with silence removal:', mp3FilePath);
-            
-            // Verify MP3 was created successfully
-            if (fs.existsSync(mp3FilePath)) {
-              const mp3Size = fs.statSync(mp3FilePath).size;
-              if (mp3Size > 0) {
-                console.log('MP3 file verified, size:', mp3Size);
-                resolve();
-              } else {
-                reject(new Error('MP3 file is empty'));
-              }
-            } else {
-              reject(new Error('MP3 file was not created'));
-            }
-          })
-          .on('error', (err) => {
-            console.error('MP3 conversion error:', err);
-            reject(err);
-          })
-          .on('progress', (progress) => {
-            if (progress.percent) {
-              console.log(`MP3 conversion progress: ${Math.round(progress.percent)}%`);
-            }
-          });
-
-        // Handle different input formats
-        if (sourceFormat === 'wav') {
-          ffmpegCommand.inputFormat('wav');
-        }
-        
-        ffmpegCommand.run();
-      });
-
-      const response = { 
-        success: true, 
-        message: "Audio saved successfully", 
-        source: {
-          filename: sourceFilename,
-          path: sourceFilePath,
-          format: sourceExtension
-        },
-        mp3: {
-          filename: mp3Filename,
-          path: mp3FilePath
-        }
-      };
-      
-      // Include WAV file if it was created
-      if (wavFilePath && fs.existsSync(wavFilePath)) {
-        response.wav = {
-          filename: wavFilename,
-          path: wavFilePath
-        };
-      }
-      
-      // Perform health check on exported files
-      try {
-        const healthCheck = await performAudioHealthCheck(response);
-        response.healthCheck = healthCheck;
-        
-        // Log health check results
-        console.log('Audio export health check:', healthCheck.overall);
-        if (healthCheck.errors.length > 0) {
-          console.warn('Health check errors:', healthCheck.errors);
-        }
-        if (healthCheck.recommendations.length > 0) {
-          console.log('Health check recommendations:', healthCheck.recommendations);
-        }
-      } catch (healthError) {
-        console.warn('Health check failed:', healthError);
-        response.healthCheckError = healthError.message;
-      }
-      
-      res.json(response);
-    } catch (conversionError) {
-      console.error("MP3 conversion failed:", conversionError);
-      
-      // If conversion fails, still return success for the source file
-      const response = { 
-        success: true, 
-        message: "Audio saved successfully (MP3 conversion failed)", 
-        source: {
-          filename: sourceFilename,
-          path: sourceFilePath,
-          format: sourceExtension
-        },
-        mp3: null,
-        warning: `MP3 conversion failed: ${conversionError.message}`
-      };
-      
-      // Include WAV file if it was created
-      if (wavFilePath && fs.existsSync(wavFilePath)) {
-        response.wav = {
-          filename: wavFilename,
-          path: wavFilePath
-        };
-        response.message = "Audio saved successfully (MP3 conversion failed, but WAV available)";
-      }
-      
-      // Perform health check on exported files
-      try {
-        const healthCheck = await performAudioHealthCheck(response);
-        response.healthCheck = healthCheck;
-        
-        // Log health check results
-        console.log('Audio export health check:', healthCheck.overall);
-        if (healthCheck.errors.length > 0) {
-          console.warn('Health check errors:', healthCheck.errors);
-        }
-        if (healthCheck.recommendations.length > 0) {
-          console.log('Health check recommendations:', healthCheck.recommendations);
-        }
-      } catch (healthError) {
-        console.warn('Health check failed:', healthError);
-        response.healthCheckError = healthError.message;
-      }
-      
-      res.json(response);
-    }
-  } catch (error) {
-    console.error("Error saving audio:", error);
-    res.status(500).json({ error: `Failed to save audio file: ${error.message}` });
-  }
-});
-
-// Vite middleware must be added after the API routes
+// Vite middleware (must be after API routes)
 app.use(vite.middlewares);
 
-// Render the React client - this should be the last route
-app.use("*", async (req, res, next) => {
+// Render the React client (catch-all route - must be last)
+app.use('*', async (req, res, next) => {
   const url = req.originalUrl;
 
   try {
     const template = await vite.transformIndexHtml(
       url,
-      fs.readFileSync("./client/index.html", "utf-8"),
+      fs.readFileSync('./client/index.html', 'utf-8'),
     );
-    const { render } = await vite.ssrLoadModule("./client/entry-server.jsx");
+    const { render } = await vite.ssrLoadModule('./client/entry-server.jsx');
     const appHtml = await render(url);
-    const html = template.replace(`<!--ssr-outlet-->`, appHtml?.html);
-    res.status(200).set({ "Content-Type": "text/html" }).end(html);
+    const html = template.replace('<!--ssr-outlet-->', appHtml?.html);
+    res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
   } catch (e) {
     vite.ssrFixStacktrace(e);
     next(e);
   }
 });
 
-// Create tunnel to make the server publicly accessible
+/**
+ * Create a public tunnel using localtunnel
+ * @param {number} port - Port to tunnel
+ * @returns {Promise<object|null>} Tunnel object or null if failed
+ */
 async function createTunnel(port) {
   try {
-    // Generate a unique subdomain based on a timestamp
     const subdomain = `app-${Date.now().toString().slice(-6)}`;
-    
     console.log(`Attempting to create tunnel with subdomain: ${subdomain}`);
-    
-    const tunnel = await localtunnel({ 
+
+    const tunnel = await localtunnel({
       port,
       subdomain: subdomain,
       allow_ip: ['0.0.0.0/0']
     });
-    
+
     console.log(`🌐 Public URL: ${tunnel.url}`);
     console.log(`Subdomain: ${subdomain}`);
     console.log(`Share this URL with others to access your application`);
-    
-    tunnel.on('close', () => {
-      console.log('Tunnel closed');
-    });
-    
-    tunnel.on('error', (err) => {
-      console.error('Tunnel error (after connection):', err);
-    });
+
+    tunnel.on('close', () => console.log('Tunnel closed'));
+    tunnel.on('error', (err) => console.error('Tunnel error:', err));
 
     return tunnel;
   } catch (error) {
-    console.error(`Failed to create tunnel with subdomain: ${error.message}`);
-    
-    console.log('Trying alternative tunnel configuration (without custom subdomain)...');
+    console.error(`Failed to create tunnel: ${error.message}`);
+
+    // Try without custom subdomain
     try {
+      console.log('Trying alternative tunnel configuration...');
       const fallbackTunnel = await localtunnel({ port });
       console.log(`🌐 Alternative Public URL: ${fallbackTunnel.url}`);
-      console.log(`Share this URL with others to access your application`);
-      
-      fallbackTunnel.on('close', () => {
-        console.log('Fallback tunnel closed');
-      });
-      
-      fallbackTunnel.on('error', (err) => {
-        console.error('Fallback tunnel error (after connection):', err);
-      });
+
+      fallbackTunnel.on('close', () => console.log('Fallback tunnel closed'));
+      fallbackTunnel.on('error', (err) => console.error('Fallback tunnel error:', err));
 
       return fallbackTunnel;
     } catch (fallbackError) {
       console.error(`Failed to create alternative tunnel: ${fallbackError.message}`);
-      console.log("\n===========================================================================");
-      console.log("🔴 Failed to create a public URL using localtunnel.");
-      console.log(`🟢 Application is running locally. Access it at http://localhost:${port}`);
-      console.log("===========================================================================\n");
+      console.log('\n===========================================================================');
+      console.log('🔴 Failed to create a public URL using localtunnel.');
+      console.log(`🟢 Application is running locally at http://localhost:${port}`);
+      console.log('===========================================================================\n');
       return null;
     }
   }
@@ -509,312 +138,27 @@ let serverInstance = null;
 if (process.env.NODE_ENV !== 'test') {
   serverInstance = app.listen(port, () => {
     console.log(`Express server running on http://localhost:${port}`);
-    
-    // Create tunnel in production mode
+
+    // Create tunnel for public access
     createTunnel(port);
 
     // Setup WebSocket server for Gemini
-    const wss = new WebSocketServer({ server: serverInstance }); // Attach to existing HTTP server
+    const wss = new WebSocketServer({ server: serverInstance });
 
     wss.on('connection', (ws, req) => {
       if (req.url === '/ws/gemini') {
-        console.log('Client connected to /ws/gemini');
-
-        if (!geminiApiKey) {
-          console.error('GEMINI_API_KEY is not set. Closing WebSocket connection.');
-          ws.terminate();
-          return;
-        }
-
-        // Removed GoogleGenerativeAI SDK instantiation here as we're using direct WebSocket for Live API
-        // const genAI = new GoogleGenerativeAI(geminiApiKey);
-        // const WebSocket = WebSocketServer.WebSocket; // This was incorrect
-
-        let googleWs = null; // WebSocket connection from this server to Google
-        let clientConfigData = null; // Store initial config from client
-        let isGoogleSessionSetupComplete = false; // Track if Google setup is complete
-        let modelSpeaking = false; // Track if model is currently speaking to gate mic uplink
-
-        console.log('Client connected to /ws/gemini. Waiting for initial config from client.');
-
-        ws.on('message', async (message) => {
-          const messageString = message.toString();
-          let parsedMessage;
-          try {
-            parsedMessage = JSON.parse(messageString);
-            console.log('Received from client for /ws/gemini:', parsedMessage);
-          } catch (e) {
-            console.error('Failed to parse message from client (expecting JSON):', messageString, e);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ error: 'Invalid message format. Expecting JSON.' }));
-            }
-            return;
-          }
-
-          if (parsedMessage.type === 'gemini_config' && !googleWs) {
-            clientConfigData = parsedMessage; 
-            // Force the specific model requested by the user
-            const modelForGoogle = 'models/gemini-2.5-flash-native-audio-preview-09-2025'; 
-            // gemini-2.5-flash-native-audio-preview-09-2025
-            // gemini-2.5-flash-preview-native-audio-dialog 
-            // gemini-2.5-flash-exp-native-audio-thinking-dialog
-            const systemPromptForGoogle = clientConfigData.systemPrompt || "";
-            // Force AUDIO modality as per user's model choice constraint
-            const responseModalityForGoogle = ["AUDIO"]; 
-            const geminiVoice = clientConfigData.geminiVoice;
-
-            console.log(`Using Gemini model: ${modelForGoogle} with AUDIO modality.`);
-            if (geminiVoice) console.log(`Requested Gemini voice: ${geminiVoice}`);
-
-            const googleWsUrl = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
-            
-            console.log(`Attempting to connect to Google Live API at ${googleWsUrl} with model ${modelForGoogle}`);
-
-            // For direct WebSocket, API key is usually sent as a header.
-            // The 'ws' library allows specifying headers during connection.
-            googleWs = new WebSocket(googleWsUrl, {
-              headers: {
-                'x-goog-api-key': geminiApiKey 
-                // Note: If this doesn't work, Google might require an ephemeral AuthToken via Authorization: Token <token>
-                // This would involve an extra step to call AuthTokenService.CreateToken first.
-              }
-            });
-
-            googleWs.onopen = () => {
-              console.log('Connection to Google Live API established.');
-              
-              const debugText = process.env.GEMINI_DEBUG === '1' || (clientConfigData && clientConfigData.debug === true);
-              const responseModalities = debugText ? Array.from(new Set([...responseModalityForGoogle, 'TEXT'])) : responseModalityForGoogle;
-
-              const generationConfig = {
-                responseModalities,
-                maxOutputTokens: 4096,
-              };
-
-              if (clientConfigData.temperature !== undefined) {
-                let temp = parseFloat(clientConfigData.temperature);
-                // Sanity clamp, though UI should send valid values for the provider.
-                // Assuming Gemini's max is 2.0 as per user.
-                temp = Math.min(Math.max(temp, 0.0), 2.0); 
-                generationConfig.temperature = temp;
-                console.log(`[Server] Setting Gemini temperature to: ${generationConfig.temperature}`);
-              }
-
-              if (responseModalityForGoogle.includes('AUDIO') && geminiVoice) {
-                generationConfig.speechConfig = {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voice_name: geminiVoice }
-                  }
-                };
-              }
-
-              const setupMessagePayload = {
-                model: modelForGoogle,
-                systemInstruction: {
-                  parts: [{ text: systemPromptForGoogle }]
-                },
-                generationConfig: generationConfig,
-                outputAudioTranscription: {}, // Requesting transcriptions for the audio output
-                // Attempt to add safetySettings from clientConfigData
-                ...(clientConfigData.safetySettings && { safetySettings: clientConfigData.safetySettings }) 
-                // This will add safetySettings only if it exists in clientConfigData
-              };
-
-              const setupMessage = { setup: setupMessagePayload };
-              
-              console.log('Sending BidiGenerateContentSetup to Google:', JSON.stringify(setupMessage, null, 2));
-              googleWs.send(JSON.stringify(setupMessage));
-            };
-
-            googleWs.onmessage = (event) => {
-              const googleMsgString = event.data.toString();
-              console.log('Received message from Google Live API:', googleMsgString);
-              try {
-                const googleMsg = JSON.parse(googleMsgString);
-                // Forward usage metadata to client for debugging/telemetry
-                if (googleMsg.usageMetadata) {
-                  console.log('[Gemini] usage:', JSON.stringify(googleMsg.usageMetadata));
-                  if (typeof googleMsg.usageMetadata.responseTokenCount !== 'undefined') {
-                    console.log(`[Gemini] responseTokenCount: ${googleMsg.usageMetadata.responseTokenCount}`);
-                  }
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'gemini_usage', usage: googleMsg.usageMetadata }));
-                  }
-                }
-                if (googleMsg.setupComplete) {
-                  console.log('Google Live API setup complete.');
-                  isGoogleSessionSetupComplete = true; // Set flag
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ status: 'Gemini session initialized (via direct WebSocket)' }));
-                  }
-                } else if (googleMsg.serverContent) {
-                  // Safety/finish diagnostics
-                  if (typeof googleMsg.serverContent.finishReason !== 'undefined' || typeof googleMsg.serverContent.stopReason !== 'undefined') {
-                    console.log('[Gemini] finishReason:', googleMsg.serverContent.finishReason, 'stopReason:', googleMsg.serverContent.stopReason);
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(JSON.stringify({ type: 'gemini_finish', finishReason: googleMsg.serverContent.finishReason, stopReason: googleMsg.serverContent.stopReason }));
-                    }
-                  }
-                  if (googleMsg.serverContent.safetyRatings) {
-                    console.log('[Gemini] safetyRatings:', JSON.stringify(googleMsg.serverContent.safetyRatings));
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(JSON.stringify({ type: 'gemini_safety', safetyRatings: googleMsg.serverContent.safetyRatings }));
-                    }
-                  }
-                  // Handle output transcription
-                  if (googleMsg.serverContent.outputTranscription && googleMsg.serverContent.outputTranscription.text) {
-                    if (ws.readyState === WebSocket.OPEN) {
-                      ws.send(JSON.stringify({ type: 'gemini_transcription', text: googleMsg.serverContent.outputTranscription.text }));
-                    }
-                  }
-                  // Handle model turn text (might be present even with audio, e.g., for function calls or errors)
-                  if (googleMsg.serverContent.modelTurn && googleMsg.serverContent.modelTurn.parts) {
-                    const textPart = googleMsg.serverContent.modelTurn.parts.find(p => p.text);
-                    if (textPart && textPart.text) {
-                       if (ws.readyState === WebSocket.OPEN) {
-                         ws.send(JSON.stringify({ type: 'gemini_text_chunk', text: textPart.text }));
-                       }
-                    }
-                    // Handle audio data from googleMsg.serverContent.modelTurn.parts
-                    const audioPart = googleMsg.serverContent.modelTurn.parts.find(p => 
-                        p.inlineData && 
-                        typeof p.inlineData.mimeType === 'string' && 
-                        p.inlineData.mimeType.startsWith('audio/pcm') // Corrected MimeType Check
-                    );
-                    if (audioPart && audioPart.inlineData.data) {
-                        console.log('Received audio data chunk from Google, forwarding to client. MimeType:', audioPart.inlineData.mimeType, 'Data length (base64):', audioPart.inlineData.data.length);
-                        modelSpeaking = true;
-                        if (ws.readyState === WebSocket.OPEN) {
-                           ws.send(JSON.stringify({ type: 'gemini_audio_chunk', data: audioPart.inlineData.data /* This should be a base64 string */ }));
-                        }
-                    }
-                  }
-
-                  if (googleMsg.serverContent.interrupted) {
-                     modelSpeaking = false;
-                     if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'gemini_interrupted' }));
-                     }
-                  }
-                  if (googleMsg.serverContent.generationComplete) {
-                     modelSpeaking = false;
-                     if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'gemini_generation_complete' }));
-                     }
-                  }
-                  if (googleMsg.serverContent.turnComplete) {
-                     modelSpeaking = false;
-                     if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'gemini_turn_complete' }));
-                     }
-                  }
-                  // TODO: Handle tool calls, errors, etc.
-                } else {
-                   if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'google_raw_message', data: googleMsg }));
-                   }
-                }
-              } catch (e) {
-                console.error('Error parsing message from Google or forwarding to client:', e);
-              }
-            };
-
-            googleWs.onerror = (error) => {
-              console.error('Error on WebSocket connection to Google Live API:', error.message);
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ error: `Google WebSocket error: ${error.message}` }));
-              }
-              if (googleWs) googleWs.terminate();
-              googleWs = null;
-            };
-
-            googleWs.onclose = (event) => {
-              console.log('WebSocket connection to Google Live API closed:', event.code, event.reason);
-              isGoogleSessionSetupComplete = false; // Reset flag
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ status: 'Gemini session with Google closed.', code: event.code, reason: event.reason }));
-              }
-              googleWs = null;
-            };
-
-          } else if ((parsedMessage.type === 'user_text_input' || parsedMessage.type === 'user_audio_input')) {
-            if (googleWs && googleWs.readyState === WebSocket.OPEN && isGoogleSessionSetupComplete) {
-              if (parsedMessage.type === 'user_text_input') {
-                const clientContentMessage = {
-                  clientContent: {
-                    turns: [{ role: "user", parts: [{ text: parsedMessage.text }] }],
-                    turnComplete: true 
-                  }
-                };
-                console.log('[Server] Sending clientContent (text) to Google:', JSON.stringify(clientContentMessage));
-                googleWs.send(JSON.stringify(clientContentMessage));
-              } else if (parsedMessage.type === 'user_audio_input' && parsedMessage.data) {
-                console.log('[Server] Received user_audio_input chunk from client. Data length (base64):', parsedMessage.data.length);
-                if (!modelSpeaking) {
-                  const googleAudioMessage = {
-                    realtimeInput: {
-                      audio: {
-                        mimeType: "audio/pcm;rate=16000", 
-                        data: parsedMessage.data 
-                      }
-                    }
-                  };
-                  googleWs.send(JSON.stringify(googleAudioMessage));
-                } else {
-                  // Drop uplink audio while model is speaking to avoid VAD-based interruption
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'gemini_uplink_dropped', reason: 'model_speaking' }));
-                  }
-                }
-              }
-            } else {
-              console.warn(`[Server] Received ${parsedMessage.type} but Google session not fully ready. googleWs state: ${googleWs?.readyState}, setupComplete: ${isGoogleSessionSetupComplete}`);
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ error: 'Google session not fully initialized yet. Please wait a moment and retry.' }));
-              }
-            }
-          } else if (!googleWs) { // Fallback for other message types if googleWs is not even initiated
-            console.warn(`[Server] Received ${parsedMessage.type} before Google WebSocket session was even attempted (no config received?).`);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ error: 'Gemini session with Google not ready. Initial config not yet processed by server.' }));
-            }
-          } else {
-            console.warn('Unknown message type from client or Google WebSocket not open:', parsedMessage.type);
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ error: `Unknown message type: ${parsedMessage.type} or Google WS not open.` }));
-            }
-          }
-        });
-
-        ws.on('close', () => {
-          console.log('Client disconnected from /ws/gemini');
-          if (googleWs) {
-            googleWs.terminate();
-            googleWs = null;
-            console.log('Terminated connection to Google Live API due to client disconnect.');
-          }
-        });
-
-        ws.on('error', (error) => {
-          console.error('Client WebSocket error on /ws/gemini:', error);
-          if (googleWs) {
-            googleWs.terminate();
-            googleWs = null;
-            console.log('Terminated connection to Google Live API due to client WebSocket error.');
-          }
-        });
-
+        handleGeminiConnection(ws, geminiApiKey);
       } else {
         console.log(`WebSocket connection attempt to unknown path: ${req.url}`);
         ws.terminate();
       }
     });
-    console.log(`WebSocket server initialized and attached to HTTP server.`);
 
+    console.log('WebSocket server initialized and attached to HTTP server.');
   });
 } else {
-  console.log("Running in test mode. Server not started automatically.");
+  console.log('Running in test mode. Server not started automatically.');
 }
 
-// Export app for testing purposes
+// Export for testing
 export { app, serverInstance, vite };

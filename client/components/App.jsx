@@ -1,16 +1,17 @@
 import { useEffect, useState, useRef } from "react";
+import { decodeBase64PcmToFloat32 } from "../utils/audioUtils";
 import logo from "/assets/vox-machina-logo.png";
 import EventLog from "./EventLog";
 import SessionControls from "./SessionControls";
 import WaveformVisualizer from "./WaveformVisualizer";
 import CharacterSelect from "./CharacterSelect";
 import SplashScreen from "./SplashScreen";
+import ProviderToggle from "./ProviderToggle";
 import { Download, Cpu, Terminal, Zap, Activity, User, Save, Settings } from "react-feather"; // Added Settings
 import { useAudioRecording } from "../hooks/useAudioRecording";
-import { useUnifiedAudioCapture } from "../hooks/useUnifiedAudioCapture"; // New unified capture
-// import { useWebRTCSession } from "../hooks/useWebRTCSession"; // Old import
-import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js"; // New OpenAI provider
-import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js"; // New Gemini provider
+import { useUnifiedAudioCapture } from "../hooks/useUnifiedAudioCapture";
+import { useOpenAISession } from "../providers/openai/OpenAISessionProvider.js";
+import { useGeminiSession } from "../providers/gemini/GeminiSessionProvider.js";
 import { useAudioExport } from "../hooks/useAudioExport";
 import { usePcmPlayer } from "../hooks/usePcmPlayer.js";
 import { usePcmStreamer } from "../hooks/usePcmStreamer.js"; // Import PCM streamer hook
@@ -98,20 +99,9 @@ export default function App() {
             if (audioChunkMessage && audioChunkMessage.type === 'gemini_audio_chunk' && audioChunkMessage.data) {
               console.log('[App.jsx] Received Gemini Audio Chunk, passing to player and unified capture:', audioChunkMessage.data.length);
 
-              // Decode the base64 PCM data to add to unified capture
+              // Decode the base64 PCM data and add to unified capture
               try {
-                const byteString = atob(audioChunkMessage.data);
-                const byteArray = new Uint8Array(byteString.length);
-                for (let i = 0; i < byteString.length; i++) {
-                  byteArray[i] = byteString.charCodeAt(i);
-                }
-                const pcm16BitView = new Int16Array(byteArray.buffer);
-                const float32Array = new Float32Array(pcm16BitView.length);
-                for (let i = 0; i < pcm16BitView.length; i++) {
-                  float32Array[i] = pcm16BitView[i] / 32768.0;
-                }
-
-                // Add to unified capture
+                const float32Array = decodeBase64PcmToFloat32(audioChunkMessage.data);
                 unifiedAudioCapture.addPcmChunk(float32Array);
               } catch (error) {
                 console.error('[App.jsx] Error processing PCM chunk for unified capture:', error);
@@ -251,29 +241,7 @@ export default function App() {
     setShowSplashScreen(false);
   };
 
-  const ProviderToggle = () => (
-    <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 p-1 sm:p-2 rounded-md bg-cyber-dark-secondary border border-neon-secondary shadow-lg">
-      <span className="text-xs text-neon-secondary uppercase tracking-wider mr-0 sm:mr-2 hidden sm:inline">Provider:</span>
-      <div className="flex gap-1">
-        <button
-          onClick={() => setCurrentProviderType('openai')}
-          disabled={currentSession.isSessionActive}
-          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${currentProviderType === 'openai' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-            } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          OpenAI
-        </button>
-        <button
-          onClick={() => setCurrentProviderType('gemini')}
-          disabled={currentSession.isSessionActive}
-          className={`terminal-button px-2 sm:px-3 py-1 text-xs sm:text-sm ${currentProviderType === 'gemini' ? 'bg-neon-primary text-cyber-dark' : 'text-neon-primary hover:bg-neon-primary/20'
-            } ${currentSession.isSessionActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          Gemini
-        </button>
-      </div>
-    </div>
-  );
+
 
   return (
     <div className="bg-cyber-dark text-cyber-text font-cyber h-screen overflow-hidden">
@@ -319,7 +287,11 @@ export default function App() {
               </div>
 
               <div className="order-3 sm:order-2">
-                <ProviderToggle />
+                <ProviderToggle
+                  currentProvider={currentProviderType}
+                  onProviderChange={setCurrentProviderType}
+                  disabled={currentSession.isSessionActive}
+                />
               </div>
 
               {/* Logo in header */}
@@ -507,9 +479,9 @@ export default function App() {
                             <div className="flex justify-between">
                               <span>TEMPERATURE:</span>
                               <span className={`${selectedCharacter.temperature < 0.4 ? "text-blue-400" :
-                                  selectedCharacter.temperature < 0.7 ? "text-cyan-400" :
-                                    selectedCharacter.temperature < 1.0 ? "text-yellow-400" :
-                                      "text-red-400"
+                                selectedCharacter.temperature < 0.7 ? "text-cyan-400" :
+                                  selectedCharacter.temperature < 1.0 ? "text-yellow-400" :
+                                    "text-red-400"
                                 }`}>{selectedCharacter.temperature.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between">

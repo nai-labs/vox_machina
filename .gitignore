@@ -31,6 +31,10 @@ characters.json
 /client/assets/avatars/*.png
 !client/assets/avatars/.gitkeep
 
+# output
+/output/*
+outputs/
+
 # Binary files and app directories
 *.app/
 *.exe
