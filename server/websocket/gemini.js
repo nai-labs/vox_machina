@@ -39,7 +39,7 @@ export function handleGeminiConnection(ws, geminiApiKey) {
         if (parsedMessage.type === 'gemini_config' && !googleWs) {
             clientConfigData = parsedMessage;
             // Use the specified model (can be overridden via clientConfigData if needed)
-            const modelForGoogle = parsedMessage.model || 'models/gemini-2.5-flash-native-audio-preview-09-2025';
+            const modelForGoogle = parsedMessage.model || process.env.GEMINI_MODEL || 'models/gemini-2.5-flash-native-audio-preview-09-2025';
             const systemPromptForGoogle = clientConfigData.systemPrompt || '';
             // Force AUDIO modality for native audio models
             const responseModalityForGoogle = ['AUDIO'];
@@ -83,6 +83,15 @@ export function handleGeminiConnection(ws, geminiApiKey) {
                             prebuiltVoiceConfig: { voice_name: geminiVoice }
                         }
                     };
+                }
+
+                // Optional thinking config (experimental - may add latency)
+                if (process.env.GEMINI_THINKING_BUDGET) {
+                    const thinkingBudget = parseInt(process.env.GEMINI_THINKING_BUDGET, 10);
+                    if (!isNaN(thinkingBudget)) {
+                        generationConfig.thinkingConfig = { thinkingBudget };
+                        console.log(`[Gemini WS] Thinking budget set to: ${thinkingBudget} tokens`);
+                    }
                 }
 
                 const setupMessagePayload = {
