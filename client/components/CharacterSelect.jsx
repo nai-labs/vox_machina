@@ -92,39 +92,59 @@ export default function CharacterSelect({
     <div className="flex flex-col items-center w-full h-full p-2 sm:p-3">
       {/* Scrollable character grid - takes up available space */}
       <div className="flex-1 w-full max-w-6xl overflow-y-auto min-h-0 mb-2">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {characters.map((character) => (
             <div
               key={character.id}
-              className={`terminal-panel cursor-pointer p-1 flex flex-col transition-all duration-300 ${selectedCharacterId === character.id
-                ? "border-neon-primary shadow-neon-glow"
-                : "border-cyber-light hover:border-neon-secondary"
+              className={`character-card terminal-panel cursor-pointer p-2 flex flex-col transition-all duration-300 group ${selectedCharacterId === character.id
+                ? "selected border-neon-primary glow-primary-strong scale-105"
+                : "border-cyber-light hover:border-neon-secondary hover:scale-102 hover:glow-secondary"
                 }`}
               onClick={() => handleSelect(character.id)}
+              style={{
+                transform: selectedCharacterId === character.id ? 'scale(1.05)' : 'scale(1)',
+              }}
             >
               {/* Avatar Image */}
               {character.avatarPath && (
-                <div className="mb-1 relative overflow-hidden rounded-sm">
+                <div className="mb-2 relative overflow-hidden rounded-sm">
                   <div className="terminal-scan-line absolute inset-0 opacity-30"></div>
                   <img
                     src={character.avatarPath}
                     alt={`${character.name} avatar`}
-                    className={`w-full h-10 sm:h-12 md:h-14 object-cover ${selectedCharacterId === character.id
-                      ? "border border-neon-primary animate-pulse-subtle"
-                      : "border border-cyber-light"
+                    className={`w-full h-20 sm:h-24 md:h-28 object-cover transition-all duration-300 ${selectedCharacterId === character.id
+                      ? "border border-neon-primary animate-pulse-subtle brightness-110"
+                      : "border border-cyber-light group-hover:brightness-125 group-hover:border-neon-secondary"
                       }`}
+                    style={{
+                      filter: selectedCharacterId === character.id
+                        ? 'drop-shadow(0 0 8px rgba(10, 255, 255, 0.6))'
+                        : 'none'
+                    }}
                   />
                 </div>
               )}
 
-              <div className="terminal-header flex items-center justify-between py-1 px-1">
-                <span className="flex items-center gap-1">
-                  <PhoneCall size={12} className="text-neon-secondary" />
-                  <span className={`text-[10px] sm:text-xs truncate ${selectedCharacterId === character.id ? "text-neon-primary" : ""}`}>
+              <div className="terminal-header flex items-center justify-between py-1.5 px-2">
+                <span className="flex items-center gap-1.5">
+                  <PhoneCall
+                    size={14}
+                    className={`transition-colors duration-300 ${selectedCharacterId === character.id
+                      ? "text-neon-primary"
+                      : "text-neon-secondary group-hover:text-neon-primary"
+                      }`}
+                  />
+                  <span className={`text-xs sm:text-sm truncate transition-all duration-300 ${selectedCharacterId === character.id
+                    ? "text-neon-primary text-glow-primary"
+                    : "group-hover:text-neon-secondary"
+                    }`}>
                     {character.name}
                   </span>
                 </span>
-                <div className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${selectedCharacterId === character.id ? "bg-neon-primary animate-pulse" : "bg-cyber-light"}`}></div>
+                <div className={`h-2 w-2 rounded-full flex-shrink-0 transition-all duration-300 ${selectedCharacterId === character.id
+                  ? "bg-neon-primary animate-pulse glow-primary"
+                  : "bg-cyber-light group-hover:bg-neon-secondary group-hover:glow-secondary"
+                  }`}></div>
               </div>
             </div>
           ))}
@@ -139,16 +159,16 @@ export default function CharacterSelect({
       )}
 
       {/* Neural Voice Parameters Panel - fixed at bottom */}
-      <div className="terminal-panel w-full max-w-6xl p-2 flex-shrink-0">
-        <div className="terminal-header flex items-center gap-2 mb-2 py-1">
+      <div className="terminal-panel w-full max-w-6xl p-3 sm:p-4 flex-shrink-0">
+        <div className="terminal-header flex items-center gap-2 mb-3 py-1.5">
           <Zap size={14} className="text-neon-primary" />
           <h3 className="text-xs neon-text">NEURAL VOICE PARAMETERS</h3>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           {/* Temperature Control */}
           <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-2">
               <label className="flex items-center gap-1 text-[10px] sm:text-xs">
                 <Thermometer size={12} className={getTemperatureColor(temperature)} />
                 <span>TEMP ({currentProvider.toUpperCase()})</span>
@@ -175,7 +195,7 @@ export default function CharacterSelect({
 
           {/* Voice Selection */}
           <div className="flex-1">
-            <div className="flex items-center gap-1 mb-1">
+            <div className="flex items-center gap-1 mb-2">
               <Volume2 size={12} className="text-neon-primary" />
               <label className="text-[10px] sm:text-xs">VOICE ({currentProvider.toUpperCase()})</label>
             </div>
@@ -224,7 +244,7 @@ export default function CharacterSelect({
           </div>
 
           {/* Initialize button inline on larger screens */}
-          <div className="flex items-end">
+          <div className="flex items-end sm:pl-2">
             <button
               onClick={handleConfirm}
               className="terminal-button flex items-center gap-2 px-3 py-1.5 text-sm whitespace-nowrap"

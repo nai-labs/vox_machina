@@ -46,10 +46,20 @@ function SessionStopped({ startSession }) {
       ) : (
         <button
           onClick={handleStartSession}
-          className="terminal-button flex items-center gap-2 px-6 py-3 text-lg"
+          className="terminal-button flex items-center gap-3 px-8 py-4 text-lg relative group"
+          style={{
+            fontSize: '1.1rem',
+            fontWeight: 'bold',
+            letterSpacing: '1px'
+          }}
         >
-          <Power className="text-neon-primary" size={18} />
+          <Power className="text-neon-primary group-hover:animate-spin" size={20} />
           <span className="neon-text">INITIALIZE CONNECTION</span>
+          {/* Corner decorations */}
+          <span className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-neon-primary"></span>
+          <span className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-neon-primary"></span>
+          <span className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-neon-primary"></span>
+          <span className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-neon-primary"></span>
         </button>
       )}
     </div>
@@ -119,15 +129,33 @@ function SessionActive({
       {currentProvider === 'gemini' && (
         <button
           onClick={isUserAudioStreaming ? onStopUserAudioStream : onStartUserAudioStream}
-          className={`terminal-button flex items-center gap-2 px-4 py-3 ${
-            isUserAudioStreaming ? "border-red-500 text-red-400" : "border-neon-primary text-neon-primary"
+          className={`terminal-button flex items-center gap-2 px-4 py-3 relative ${
+            isUserAudioStreaming
+              ? "border-red-500 text-red-400"
+              : "border-neon-primary text-neon-primary"
           }`}
           title={isUserAudioStreaming ? "Stop Recording" : "Start Recording (Push-to-Talk)"}
+          style={isUserAudioStreaming ? {
+            boxShadow: '0 0 20px rgba(239, 68, 68, 0.6), 0 0 40px rgba(239, 68, 68, 0.3)',
+            animation: 'borderPulse 1s infinite ease-in-out'
+          } : {}}
         >
-          {isUserAudioStreaming ? <MicOff size={16} /> : <Mic size={16} />}
-          <span className={isUserAudioStreaming ? "animate-pulse" : ""}>
-            {isUserAudioStreaming ? "REC" : "MIC"}
-          </span>
+          {isUserAudioStreaming ? (
+            <>
+              <MicOff size={16} className="animate-pulse" />
+              <span className="animate-pulse font-bold">RECORDING</span>
+              {/* Recording indicator */}
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+              </span>
+            </>
+          ) : (
+            <>
+              <Mic size={16} />
+              <span>MIC</span>
+            </>
+          )}
         </button>
       )}
       

@@ -73,9 +73,18 @@ function Event({ event, timestamp }) {
 
 
   return (
-    <div className={`flex flex-col gap-1 p-2 rounded border-l-4 mb-3 bg-cyber-dark/70 ${borderColorClass}`}>
+    <div
+      className={`flex flex-col gap-1 p-2 rounded border-l-4 mb-3 bg-cyber-dark/70 ${borderColorClass}
+                  transition-all duration-300 hover:bg-cyber-dark/90 hover:shadow-lg animate-fade-in`}
+      style={{
+        animation: 'fade-in-slide 0.3s ease-out',
+        boxShadow: isClientEvent
+          ? '0 2px 8px rgba(10, 255, 255, 0.2)'
+          : '0 2px 8px rgba(0, 170, 255, 0.2)'
+      }}
+    >
       <div
-        className="flex items-center gap-2 cursor-pointer"
+        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center">

@@ -348,6 +348,7 @@ export default function App() {
           <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
             <div className="terminal-scan-line"></div>
           </div>
+          <div className="absolute inset-0 bg-layer-atmosphere pointer-events-none"></div>
           <div className="absolute inset-0 bg-gradient-radial from-cyber-dark via-cyber-dark to-black opacity-80 pointer-events-none"></div>
 
           {/* Fast flickering particles in the background */}

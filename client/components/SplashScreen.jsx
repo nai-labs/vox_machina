@@ -58,13 +58,12 @@ export default function SplashScreen({ onComplete }) {
         {/* Logo with enhanced styling */}
         <div className="mb-8 relative">
           <div className="absolute inset-0 bg-gradient-radial from-neon-primary/10 via-transparent to-transparent rounded-full filter blur-xl"></div>
-          <img 
-            src={voxMachinaLogo} 
-            alt="Vox Machina" 
-            className="w-64 h-auto relative z-10 mix-blend-screen animate-pulse-subtle"
-            style={{ 
-              filter: 'drop-shadow(0 0 8px rgba(10, 255, 255, 0.5))',
-              animation: 'pulse 4s infinite ease-in-out'
+          <img
+            src={voxMachinaLogo}
+            alt="Vox Machina"
+            className="w-64 h-auto relative z-10 mix-blend-screen"
+            style={{
+              animation: 'logo-materialize 2s ease-out forwards'
             }}
           />
         </div>
@@ -76,15 +75,23 @@ export default function SplashScreen({ onComplete }) {
           </div>
         </div>
         
-        {/* Enhanced loading bar */}
-        <div className="w-full bg-cyber-light/10 h-1.5 rounded-full overflow-hidden backdrop-blur-sm border border-neon-primary/20">
-          <div 
-            className="h-full bg-gradient-to-r from-neon-secondary/80 to-neon-primary rounded-full transition-all duration-50 ease-linear"
-            style={{ 
+        {/* Enhanced segmented loading bar */}
+        <div className="w-full bg-cyber-light/10 h-2 rounded-full overflow-hidden backdrop-blur-sm border border-neon-primary/30 relative">
+          <div
+            className="h-full bg-gradient-to-r from-neon-secondary via-neon-primary to-neon-tertiary rounded-full transition-all duration-50 ease-linear relative"
+            style={{
               width: `${progress}%`,
-              boxShadow: '0 0 10px rgba(10, 255, 255, 0.7)'
+              boxShadow: '0 0 15px rgba(10, 255, 255, 0.8), 0 0 30px rgba(10, 255, 255, 0.4)'
             }}
-          />
+          >
+            {/* Flash effect at progress edge */}
+            <div
+              className="absolute right-0 top-0 bottom-0 w-2 bg-white opacity-60 blur-sm"
+              style={{
+                boxShadow: '0 0 8px rgba(255, 255, 255, 0.8)'
+              }}
+            />
+          </div>
         </div>
         
         {/* Audio visualization effect inspired by the logo */}
